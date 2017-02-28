@@ -1,0 +1,108 @@
+---
+layout: post
+title: "ES5、ES6实现双向数据绑定的小实践"
+date: "2017-02-28 19:01:23 +0800"
+---
+# 实现双向数据绑定的小实践
+## 方案
+> 1. 发布者-订阅者模型
+> 2. 脏值检查机制
+> 3. 数据劫持
+
+####  由于最近在使用==Vue2.0==框架，所以对其中的数据绑定机制感兴趣。
+#### 最终使用Vue的数据劫持机制来实现双向数据绑定功能
+
+## 实现机制
+- ### JavaScript的ES5特性中,针对Object有defineProperty方法。使用如下:
+{% highlight JavaScript %}
+  var obj = {}
+  // key-->obj中的key值
+  Object.defineProperty(obj, key, {
+    value: , // 初始化值
+    writable: , // 可写
+    configurable: , // 任何对属性写、删等操作，无效
+    enumerable: , // 在for-in中是否可以列举出
+    get: () => {}, // 读操作
+    set: (newVal) => {} // 写操作
+  })
+{% endhighlight %}
+#### 则基于ES5中defineProperty的特性，简单的双向绑定，代码如下
+{% highlight HTML %}
+<div id="app">
+  <input type="text" id="a">
+  <span id="b"></span>
+</div>
+<script>
+var obj = {};
+Object.defineProperty(obj, '$data', {
+  set: function(newVal) {
+    document.getElementById('a').value = newVal;
+    document.getElementById('b').innerHTML = newVal;
+  }
+});
+document.addEventListener('keyup', function(e) {
+  if (e.target.value) {
+    obj.$data = e.target.value;
+  } else {
+    obj.$data = '';
+  }
+});
+</script>
+{% endhighlight %}
+- ### JavaScript的ES6新增了一个Proxy类，用来接管通过Prxoy创建的代理对象。使用如下：
+```
+var obj = new Proxy(target, handler);
+// 其中handler属性，如下
+1. get(target, propKey, receiver)
+2. set(target, propKey, value, receiver)
+3. has(target, propKey)
+4. deleteProperty(target, propKey)
+5. ownKeys(target)
+6. getOwnPropertyDescriptor(target, propKey)
+7. defineProperty(target, propKey, propDesc)
+8. preventExtensions(target)
+9. getPrototypeOf(target)
+10.isExtensible(target)
+11.setPrototypeOf(target, proto)
+12.apply(target, object, args)
+13.construct(target, args)
+```
+
+##### 这里贴出一篇使用文档，来自[阮大大](http://es6.ruanyifeng.com/#docs/proxy)
+
+#### 使用ES6的代理特性实现数据双向绑定，代码如下
+{% highlight HTML %}
+<div id="app">
+  <input type="text" id="a">
+  <span id="b"></span>
+</div>
+<script>
+var obj = new Proxy({}, {
+  get: function (target, key, receiver) {
+    return Reflect.get(target, key, receiver);
+  },
+  set: function (target, key, value, receiver) {
+    if (key === '$data') {
+     document.getElementById('a').value = value;
+     document.getElementById('b').innerHTML = value;
+    }
+    return Reflect.set(target, key, value, receiver);
+  }
+});
+document.addEventListener('keyup', function(e) {
+  if (e.target.value) {
+    obj.$data = e.target.value;
+  } else {
+    obj.$data = '';
+  }
+});
+</script>
+{% endhighlight %}
+其中，使用了Reflect新增类，也是ES6新增，用于反射到原有的原生链中去。具体使用方法和使用范围，请[参考](http://es6.ruanyifeng.com/#docs/reflect)。
+
+# **最后小总结一下**
+> ### 个人小见解，欢迎补充
+- 该数据绑定都是基于一个现有对象obj，通过JS的keyup的事件，来监听obj中$data属性，一旦发生变化，立马更新对应的Dom节点。
+- Vue实现的数据双向绑定肯定不可能这么简单，涉及到模板指令、观察者、订阅管道器、虚拟DOM实现等等。具体实现网上有很多例子，这里列出一个别人实现简单的MVVM原理的[GitHub项目地址](https://github.com/wojustme/mvvm)。
+- 写这个文章目的是介绍一下ES6可以很轻松的来实现数据绑定，当然ES5的defineProperty也同样很方便。😝😝😝
+- 本人是小码农，什么新技术都爱玩。随时骚扰我。📧:xurenhe19910131@163.com
