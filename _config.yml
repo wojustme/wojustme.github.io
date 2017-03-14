@@ -16,7 +16,7 @@
 title: 一些小分享
 email: xurenhe19910131@163.com
 description: > # this means to ignore newlines until "baseurl:"
-  我是一个喜欢折腾的小码农
+  我是一个喜欢折腾的小码农  http://www.cnblogs.com/xu-wojustme
 baseurl: "" # the subpath of your site, e.g. /blog
 url: "" # the base hostname & protocol for your site, e.g. http://example.com
 github_username:  wojustme
