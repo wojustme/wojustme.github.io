@@ -2,6 +2,11 @@
 layout: page
 title: About
 permalink: /about/
+icon: heart
+type: page
 ---
 
-空空如也，刚开始用后续补上。。。
+* content
+{:toc}
+
+## 关于我

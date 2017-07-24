@@ -1,8 +1,13 @@
 ---
 layout: post
-title: "ES5、ES6实现双向数据绑定的小实践"
-date: "2017-02-28 19:01:23 +0800"
+title: "数据双向绑定"
+date: "2017-02-28 19:27:24 +0800"
+categories: JS
+tags: JS
+excerpt: JS中的数据双向绑定
+mathjax: true
 ---
+
 # 实现双向数据绑定的小实践
 ## 方案
 > 1. 发布者-订阅者模型
@@ -11,8 +16,8 @@ date: "2017-02-28 19:01:23 +0800"
 
 ###  由于最近在使用Vue2.0框架，所以对其中的数据绑定机制感兴趣。
 #### 最终使用Vue的数据劫持机制来实现双向数据绑定功能
-## 最终实现结果如下 
-![image](../../../public/img/数据双向绑定.gif)
+## 最终实现结果如下
+![image](../../../../public/img/数据双向绑定.gif)
 ## 实现机制
 - ### JavaScript的ES5特性中,针对Object有defineProperty方法。使用如下:
 {% highlight JavaScript %}
