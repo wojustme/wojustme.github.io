@@ -17,7 +17,7 @@ mathjax: true
 ###  由于最近在使用Vue2.0框架，所以对其中的数据绑定机制感兴趣。
 #### 最终使用Vue的数据劫持机制来实现双向数据绑定功能
 ## 最终实现结果如下
-![image](../../../../public/img/数据双向绑定.gif)
+![image](../../../../public/img/js/数据双向绑定.gif)
 ## 实现机制
 - ### JavaScript的ES5特性中,针对Object有defineProperty方法。使用如下:
 {% highlight JavaScript %}
