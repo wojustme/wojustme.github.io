@@ -2,6 +2,7 @@
 layout: post
 title: "捡起JavaScript(3)"
 date: "2017-03-12 09:28:40 +0800"
+categories: JS
 tags: JS
 excerpt: JS原型链
 mathjax: true

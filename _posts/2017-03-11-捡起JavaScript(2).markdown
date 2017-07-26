@@ -2,6 +2,7 @@
 layout: post
 title: "捡起JavaScript(2)"
 date: "2017-03-11 09:28:40 +0800"
+categories: JS
 tags: JS
 excerpt: JS面向对象思想
 mathjax: true
