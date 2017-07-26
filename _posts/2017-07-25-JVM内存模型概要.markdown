@@ -217,34 +217,29 @@ public class FinalizeEscapeGC {
 {% highlight Java %}
 // TestDirectByteBuffer
 import java.nio.ByteBuffer;
-public class TestDirectByteBuffer
-{
-	// -verbose:gc -XX:+PrintGCDetails -XX:MaxDirectMemorySize=40M
-	public static void main(String[] args) throws Exception
-	{
-		while (true)
-		{
-			ByteBuffer buffer = ByteBuffer.allocateDirect(10 * 1024 * 1024);
-		}
-	}
+public class TestDirectByteBuffer {
+  // -verbose:gc -XX:+PrintGCDetails -XX:MaxDirectMemorySize=40M
+  public static void main(String[] args) throws Exception {
+    while (true) {
+      ByteBuffer buffer = ByteBuffer.allocateDirect(10 * 1024 * 1024);
+    }
+  }
 }
 // TestUnsafeMemo
 import sun.misc.Unsafe;
-public class TestUnsafeMemo
-{
-	// -XX:MaxDirectMemorySize=40M
-	public static void main(String[] args) throws Exception
-	{
-		Unsafe unsafe = GetUsafeInstance.getUnsafeInstance();
-		while (true)
-		{
-			long pointer = unsafe.allocateMemory(1024 * 1024 * 20);
-			System.out.println(unsafe.getByte(pointer + 1));
-			// 如果不释放内存,运行一段时间会报错java.lang.OutOfMemoryError
-			// unsafe.freeMemory(pointer);
-		}
-	}
+public class TestUnsafeMemo {
+  // -XX:MaxDirectMemorySize=40M
+  public static void main(String[] args) throws Exception {
+    Unsafe unsafe = GetUsafeInstance.getUnsafeInstance();
+    while (true) {
+      long pointer = unsafe.allocateMemory(1024 * 1024 * 20);
+      System.out.println(unsafe.getByte(pointer + 1));
+      // 如果不释放内存,运行一段时间会报错java.lang.OutOfMemoryError
+      // unsafe.freeMemory(pointer);
+    }
+  }
 }
+// 借鉴http://blog.csdn.net/aitangyong/article/details/39323125例子
 {% endhighlight %}
 总结
 1. TestDirectByteBuffer会不停去触发GC操作
