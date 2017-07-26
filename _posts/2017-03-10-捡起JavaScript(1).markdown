@@ -35,7 +35,7 @@ symbol | Symbol() ES6引入
 > #### 一切引用类型都是Object
 #### 我们都知道JS判断类型有两种typeof和instanceof，但是这两个有什么区别么？
 
-```
+```js
 // 代码1
 console.log(typeof(x));    // undefined
 console.log(typeof(10));   // number
@@ -48,7 +48,7 @@ console.log(typeof (null));  //object
 console.log(typeof (new Number(10)));  //object
 ```
 
-```
+```js
 // 代码2
 function ABC() {}
 var abc = new ABC()

@@ -11,32 +11,31 @@ mathjax: true
 
 在ES6标准出现之前，所有想在JavaScript中使用面向对象思想来定义变量，唯一的途经就是使用new XXX()，其中XXX是一个方法名。例如：
 
-```
+```js
 function ABC() {}
 var abc = new ABC()
 ```
 有的小伙伴会想：咦？我明明可以使用的是var obj = {}来声明一个对象变量啊，怎么能说new 方法名是唯一途经呢？
 > 其实JS提供了一个语法糖，var obj = {} 和 var abc = new Object()是一个意思。同时，说明了一个问题Object是一个方法名。通过如下的代码，证明了我们的猜想。
 
-```
+```js
 Object instanceof Function
 // true
 ```
 
 好了，我们再次回来，我们定义了一个方法ABC，那么JS帮我们对这个ABC做了哪些操作了？
-![](http://images2015.cnblogs.com/blog/945399/201703/945399-20170311155925389-1194566856.gif)
+![image](../../../../public/img/js/add_ABC_动画.gif)
 
 可以很显然地发现JS内核对方法ABC添加了很多属性，其中最重要的就是prototype，它也是一个对象。
-
-![](http://images2015.cnblogs.com/blog/945399/201703/945399-20170311160005248-2087194279.png)
+![image](../../../../public/img/js/show_prototype.png)
 
 我们发现ABC.prototype中有constructor属性就是之前声明的ABC方法。
 
 ### ok!现在我在草稿纸上画一下ABC和ABC.prototype之间的关系。
-![](http://images2015.cnblogs.com/blog/945399/201703/945399-20170311160217920-645652526.jpg)
+![image](../../../../public/img/js/show_proto_relation.jpg)
 
 你会问这个有什么用？我们先抛开这个问题，引入一个问题在JavaScript面向对象思想里，如何定义变量和方法？
-```
+```js
 function ABC() {
     this.name = 'hello',
     this.say = function() {
@@ -49,7 +48,7 @@ console.log(abc.name) // hello
 abc.say()  // ABC say...
 ```
 如果你回答结束，我会问还有呢？
-```
+```js
 function ABC() {}
 ABC.prototype .name = 'hello'
 ABC.prototype.say = () => { console.log('ABC say... ')}

@@ -4,11 +4,12 @@ title: "JVM内存模型概要"
 date: "2017-07-25 17:12:27 +0800"
 categories: JVM学习
 tags: JVM
-excerpt: JVM学习
+excerpt: JVM学习-JVM内存模型一些名词解析
 mathjax: true
 ---
 
-# JVM内存模型一些名词解析
+* content
+{:toc}
 
 ## 啥也不说，看图说话
 
@@ -21,3 +22,50 @@ mathjax: true
 3. 线程私有--虚拟机栈 => 局部变量表、操作数栈、动态链接、出口
 4. 线程私有--程序计数器 => 当前线程正在执行的字节码指令地址
 5. 线程私有--本地方法区 => 执行native方法区域
+
+其实还少两种区域：常量池和直接内存。
+1. 常量池 => 方法区的一部分，那么显然就是线程共享的
+2. 直接内存 => NIO中的Buffer缓冲区，线程私有
+
+## 常量池
+
+个人觉得常量池这一部分最好理解，就先总结了，下列代码挺能说明问题的。
+
+{% highlight Java %}
+// Conf1.java
+public class Conf1 {
+  public static String name1 = "hello";
+  public static String name2 = "hello";
+  public static String name3 = "he" + "llo";
+  public static String name4 = "he" + new String("llo");
+  public static String name5;
+  public static String name6;
+  static {
+    name5 = "hello";
+    name6 = getName6();
+  }
+  public static String getName6() {
+    return "hello";
+  }
+}
+// Conf2.java
+public class Conf2 {
+  public static String name1 = "hello";
+}
+// Main.java
+public class Main {
+  public static void main(String[] args) {
+    System.out.println(Conf1.name1 == Conf1.name2); // true
+    System.out.println(Conf1.name1 == Conf1.name3); // true
+    System.out.println(Conf1.name1 == Conf1.name4); // false
+    System.out.println(Conf1.name1 == Conf1.name5); // true
+    System.out.println(Conf1.name1 == Conf1.name6); // true
+    System.out.println(Conf1.name1 == Conf2.name1); // true
+  }
+}
+{% endhighlight %}
+
+1. 当该Main运行时，JVM装载Conf1和Conf2类，分别对其解析、分析得出含有"hello"这个字符串常量
+2. 其中Conf1的name1, name2, name3, name5, name6, 以及Conf2的name1都执行同一个常量hello的内存地址，所以Conf1.name1 == Conf1.name2 == Conf1.name3 == Conf1.name5 == Conf1.name6 == Conf2.name1
+3. 而Conf1中的name4用了new String，指向了新的内存地址，所以不可能跟其他的name相等了
+4. 注意的是，常量池是运行时常量池，即可以多个Java文件中共享一个常量池，与类信息无关
