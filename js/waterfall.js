@@ -8,17 +8,22 @@
  * @return {[type]}           [description]
  */
 (function() {
-  var demoContent = [
-    // demo展示例子
-    // {
-    //   demo_link: 'https://codepen.io/haoyang/pen/jrvrQq',
-    //   img_link: 'https://ooo.0o0.ooo/2016/11/24/5836d81f48cd2.png',
-    //   code_link: 'https://codepen.io/haoyang/pen/jrvrQq',
-    //   title: 'Fisher-Yates 洗牌算法动画',
-    //   core_tech: 'JavaScript',
-    //   description: 'Fisher-Yates 洗牌算法动画。算法详情见 <a href ="https://gaohaoyang.github.io/2016/10/16/shuffle-algorithm/">这里</a>。'
-    // }
-  ];
+  // demo展示例子
+  var demoContent = [{
+    demo_link: 'https://github.com/wojustme/mystorm-all',
+    img_link: '../../../../public/img/demo/mystorm.jpg',
+    code_link: 'https://github.com/wojustme/mystorm-all',
+    title: '一个类似storm的框架-demo级别',
+    core_tech: 'Java 大数据 storm',
+    description: '一个类似storm的简单框架。项目详情见 <a href ="https://github.com/wojustme/mystorm-all">这里</a>。'
+  }, {
+    demo_link: 'https://github.com/wojustme/simple-frame',
+    img_link: '../../../../public/img/demo/json-web.gif',
+    code_link: 'https://github.com/wojustme/simple-frame',
+    title: '造了一下Spring轮子，有利于阅读Spring源码',
+    core_tech: 'Java Spring JsonWeb',
+    description: '对上层只提供JSON数据服务。项目详情见 <a href ="https://github.com/wojustme/simple-frame">这里</a>。'
+  }];
 
   contentInit(demoContent) //内容初始化
   waitImgsLoad() //等待图片加载，并执行布局初始化
