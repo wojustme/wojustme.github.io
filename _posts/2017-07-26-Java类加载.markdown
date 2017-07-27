@@ -207,4 +207,12 @@ protected Class<?> loadClass(String name, boolean resolve)
 
 1. 由于双亲模型JDK1.2才出现，为了兼容之前的版本，特意添加了findClass()方法
 2. 从源码中可以看出loadClass()方法是完全遵循双亲委托模型的
-3. 自定义ClassLoader，唯一目的就是去重写loadClass()方法
+3. 自定义ClassLoader，唯一目的就是去重写loadClass()方法，通过loadClass回调findClass方法，再重写findClass方法，推荐这种写法
+
+## 线程上下文类加载器
+1. Thread. setContextClassLoader()
+2. 是一个角色
+3. 用以解决顶层ClassLoader无法访问底层ClassLoader的类的问题
+4. 基本思想是，在顶层ClassLoader中，传入底层ClassLoader的实例
+5. Tomcat的WebappClassLoader 就会先加载自己的Class，找不到再委托parent
+6. OSGi的ClassLoader形成网状结构，根据需要自由加载Class
