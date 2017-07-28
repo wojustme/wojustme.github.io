@@ -1,0 +1,112 @@
+---
+layout: post
+title: "JVM和多线程"
+date: "2017-07-28 22:12:27 +0800"
+categories: JVM学习
+tags: JVM
+excerpt: JVM学习-JVM和多线程
+mathjax: true
+---
+
+* content
+{:toc}
+
+## 内存模型
+
+在了解JVM对于多线程的模型之前，我们先了解一下什么是物理计算机的并发。在计算机设计中CPU的运行速度远快于主存的存取速度，总不能把CPU的时间浪费在主存存取数据上，就加一级缓存、二级缓存……
+
+**多核CPU架构中缓存**
+
+![image](../../../../public/img/jvm/计算机缓存图.png)
+
+每个CPU都有一个缓存，CPU通过缓存来与主存进行数据操作。当然缓存的引入就会导致缓存的一致性问题，然后有各种协议来保证，MSI、MESI……巴拉巴拉一堆不说了。
+
+**同样类比，JVM的内存模型很类似，如下图**
+![image](../../../../public/img/jvm/JVM多线程内存模型.png)
+
+真正的数据在主内存中，每个线程开启，都会把数据拷贝一份副本到自己的工作内存中去，显然也就会引起不一致的问题。
+
+## 内存之间的操作
+
+1. lock => 锁定, 作用于主内存变量，它把一个变量标识为一条线程独占状态
+2. unlock => 解锁, 作用于主内存变量，释放之前的锁，给别的线程去锁定
+3. read => 读取, 作用于主内存变量，具体如下图
+4. load => 载入, 作用于工作内存变量，具体如下图
+5. use => 使用, 作用于工作内存变量，具体如下图
+6. assign => 赋值, 作用于工作内存变量，具体如下图
+7. store => 存储, 作用于工作内存变量，具体如下图
+8. write => 写入, 作用于主内存变量，具体如下图
+
+![image](../../../../public/img/jvm/JVM内存间操作.png)
+
+显然
+1. 每一个操作具有原子性
+2. 主内存 => 工作内存 (先read再load)
+3. 工作内存 => 主内存 (先store再write)
+4. 工作内存 => CPU (use)
+5. CPU => 工作内存 (assign)
+
+**必须遵循8个原则**
+1. 不允许read和load、store和write操作之一单独出现
+2. 不允许一个线程丢弃它的最近的assign操作，即变量在工作内存中改变了之后必须把该变化同步回主内存
+3. 不允许一个线程无原因地(没有发生过任何assign操作)把数据从线程的工作内存同步回主内存中
+4. 一个新的变量只能在主内存中“诞生”，不允许在工作内存中直接使用一个未被初始化(load或assign)的变量，即对一个变量实施use、store操作之前，必须先执行过了assign和load操作
+5. 一个变量在同一个时刻只允许一条线程对其进行lock操作，但lock操作可以被同一条线程重复执行多次，多次执行lock后，只有执行相同次数的unlock操作，变量才会被解锁
+6. 如果对一个变量执行lock操作，那将会清空工作内存此变量的值(清除副本)，在执行引擎使用这个变量钱，需要重新执行load或assign操作初始化该变量的值
+7. 如果一个变量事先没有被lock操作锁定，那就不允许对它执行unlock操作，也不允许unlock一个被其他线程锁定住的变量
+8. 对一个变量执行unlock之前，必须先把此变量同步会主内存中(执行store、write操作)
+
+
+## 并发三大特性
+
+### 原子性
+
+1. 小范围的原子性 => Java的基本类型的读写单一操作都具有原子性(long和double这两种64位操作看情况)
+2. 大范围的原子性 => 通过synchronized块之间的操作，它的字节码指令即monitorenter和monitorexit
+
+### 可见性
+
+1. 当一个线程修改了共享变量的值，其他线程能够立即得知这个修改
+2. volatile、synchronized、final(除this引用逃逸情况外，即初始化了一半的对象，针对这个问题，后面会专门研究一下)
+
+### 有序性
+
+1. 在本线程内观察，所有的操作都是有序的
+2. 如果在一个线程中观察另一个线程，所有的操作都是无序的。
+3. volatile和synchronized可以保证有序性
+
+## volatile关键字解析
+
+1. 线程存储操作完变量，强制刷入主内存
+2. 线程读取变量，强制从主内存刷入最新值
+3. 基本类型变量更新时，不依赖其他变量(包括自己变量)，可以等同于该变量操作具有原子性
+4. 单例模式
+
+{% highlight Java %}
+public class Singleton {
+  private volatile static Singleton instance;
+  private Singleton() {
+  }
+  public static Singleton getInstance() {
+    if (instance == null) {
+      synchronized (Singleton.class) {
+        if (instance == null) {
+          instance = new Singleton();
+        }
+      }
+    }
+    return instance;
+  }
+}
+{% endhighlight %}
+总结：这里使用volatile关键字，可以保证该变量对于多线程的可见性。在不使用volatile关键字的条件下，假设有两个线程A、B来获得单例，当线程A检测到实例不存在，则开始创建，等创建完成，实例instance没有及时回写到主内存，让线程B知道，线程B没检测到实例存在，又去创建一遍，那么会创建多次实例，导致错误。
+
+
+## Java语言层次的线程状态
+
+1. 新建 => 创建后尚未启动的线程
+2. 运行 => 包括操作系统线程状态的Running和Ready
+3. 无限期等待 => 不会被分配CPU执行时间，等待被其他线程显示唤醒(没有设置时间的Object.wait、没有设置时间的Thread.join、LockSupport.park)
+4. 限期等待 => 不会被分配CPU执行时间，是被操作系统来唤醒，无须其他线程显示唤醒(Thread.sleep、设置时间的Object.wait、设置时间的Thread.join、LockSupport.parkNanos、LockSupport.parkUntil)
+5. 阻塞 => 等待获取一个排它锁，另一个线程放弃这个锁时即可发生
+6. 结束 => 线程结束执行

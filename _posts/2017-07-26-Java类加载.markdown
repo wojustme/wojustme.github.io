@@ -196,7 +196,7 @@ protected Class<?> loadClass(String name, boolean resolve)
             return c;
         }
     }
-   {% endhighlight %}
+{% endhighlight %}
 1. 从上层开始查找对应的Class文件
 2. 这样就保证了类似java.lang.String这些基础包足够安全
 3. 线程上下文类加载器，用于破坏双亲委派模型，为了适用于SPI代码
@@ -210,6 +210,7 @@ protected Class<?> loadClass(String name, boolean resolve)
 3. 自定义ClassLoader，唯一目的就是去重写loadClass()方法，通过loadClass回调findClass方法，再重写findClass方法，推荐这种写法
 
 ## 线程上下文类加载器
+
 1. Thread. setContextClassLoader()
 2. 是一个角色
 3. 用以解决顶层ClassLoader无法访问底层ClassLoader的类的问题
