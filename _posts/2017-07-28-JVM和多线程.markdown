@@ -110,3 +110,122 @@ public class Singleton {
 4. 限期等待 => 不会被分配CPU执行时间，是被操作系统来唤醒，无须其他线程显示唤醒(Thread.sleep、设置时间的Object.wait、设置时间的Thread.join、LockSupport.parkNanos、LockSupport.parkUntil)
 5. 阻塞 => 等待获取一个排它锁，另一个线程放弃这个锁时即可发生
 6. 结束 => 线程结束执行
+
+## JVM的锁机制
+
+### 对象头Mark
+
+1. Mark World，对象头的标记，32位
+2. 描述对象的hash、锁信息、垃圾回收标记、年龄
+3. 指向锁记录的指针
+4. 指向monitor的指针
+5. GC标记
+6. 偏向锁线程ID
+
+### 偏向锁
+
+1. 所谓偏向，就是偏心，即锁会偏向于当前已经占有锁的线程
+2. 大部分情况是没有竞争的，所以可以通过偏向来提高性能
+3. 将对象Mark的标记设置为偏向，并将线程ID写入对象头Mark中
+4. 只要没有竞争，获得偏向锁的线程，在将来进入同步块，不要同步，当其他线程请求相同的锁是，偏向模式结束
+5. 默认开启(-XX:+UseBiasedLocking)
+6. 在竞争激烈的场合，偏向锁会增加系统负担
+
+{% highlight Java %}
+public class BiasLock {
+  public static List<Integer> numberList = new Vector<>();
+  public static void main(String[] args) {
+    long begin = System.currentTimeMillis();
+    int count = 0;
+    int startnum = 0;
+    while (count < 10000000) {
+      numberList.add(startnum);
+      startnum += 2;
+      count++;
+    }
+    long end = System.currentTimeMillis();
+    System.out.println(end - begin);
+  }
+}
+/* 输出
+-XX:+UseBiasedLocking -XX:BiasedLockingStartupDelay=0 => 2925
+// BiasedLockingStartupDelay=0，jvm设计者认为系统刚开始运行，竞争比较激烈，会延迟几秒开启偏向锁
+-XX:-UseBiasedLocking => 3308
+*/
+{% endhighlight %}
+
+### 轻量级锁
+
+![image](../../../../public/img/jvm/轻量级锁.png)
+
+1. BasicObjectLock => 嵌入在线程栈中的对象
+2. 快速锁定方法
+3. 如果如果对象没有被锁定，将对象头的Mark指针保存到锁对象中，将对象头设置为指向锁的指针（在线程栈空间中）
+4. 如何判断线程是否持有这把锁，即判断这个对象的对象头所指向的指针是否在这个线程栈中，如果是，则持有锁；否则反之
+5. 如果轻量级锁失败，表示存在竞争，升级为重量级锁（常规锁）
+6. 在没有锁竞争的前提下，减少传统锁使用OS互斥量产生的性能损耗
+7. 在竞争激烈时，轻量级锁会多做很多额外操作，导致性能下降
+
+
+### 自旋锁
+
+1. **当竞争存在时**，如果线程可以很快获得锁，那么可以不在OS层挂起线程，让线程做几个空操作（自旋）
+2. 利用几个CPU的空转指令代替线程的挂起，唤醒等操作切换时间
+3. JDK1.6中-XX:+UseSpinning开启，JDK1.7中，去掉此参数，改为内置实现
+4. 如果同步块很长，自旋失败，会降低系统性能
+5. 如果同步块很短，自旋成功，节省线程挂起切换时间，提升系统性能
+6. while(true){}、for(;;){}
+
+### 总结
+
+**不是Java语言层面的锁优化**
+1. 偏向锁可用会先尝试偏向锁
+2. 轻量级锁可用会先尝试轻量级锁
+3. 以上都失败，尝试自旋锁
+4. 再失败，尝试普通锁，使用OS互斥量在操作系统层挂起
+
+
+## 锁优化
+
+1. 减少锁持有时间(只锁需要同步的步骤)
+2. 减少锁粒度(ConcurrentHashMap，将一个大的Map分段，针对每个段都可以让多个线程进入，从而提高了大Map的并发量)
+3. 锁分离(ReadWriteLock、读多写少的情况，可以提高性能) => LinkedBlockingQueue
+4. 锁粗化(连续请求同一把锁，不如把中间不需要同步且执行很快的代码块，使用一个锁包在一起)
+
+
+## 锁消除
+
+{% highlight Java %}
+public class RemoveLock {
+  public static final int CIRCLE = 20000000;
+  public static void main(String[] args) {
+    long start = System.currentTimeMillis();
+    for (int i = 0; i < CIRCLE; i++) {
+      craeteStringBuffer("JVM", "Diagnosis");
+    }
+    long bufferCost = System.currentTimeMillis() - start;
+    System.out.println("craeteStringBuffer: " + bufferCost + " ms");
+
+  }
+  public static String craeteStringBuffer(String s1, String s2) {
+    StringBuffer sb = new StringBuffer();
+    sb.append(s1);
+    sb.append(s2);
+    return sb.toString();
+  }
+}
+/* 输出
+-server -XX:+DoEscapeAnalysis -XX:+EliminateLocks => craeteStringBuffer: 2772 ms
+-server -XX:+DoEscapeAnalysis -XX:-EliminateLocks => craeteStringBuffer: 2876 ms
+锁消除是基于对象的逃逸分析
+ */
+{% endhighlight %}
+总结： StringBuffer的append方法具有同步功能，但是变量sb是jvm栈内部，线程安全，所以，在craeteStringBuffer方法中可以让JVM消除掉StringBuffer的锁操作
+
+
+## 无锁操作
+
+1. 乐观锁一中表现形式
+2. CAS(Compare And Swap) => 非阻塞的同步，操作(V、E、N三个数)，V表示要更新的变量、E表示期望值、N表示新的值，当且晋档V == E,则把N赋值给V
+3. java.util.concurrent.atomic包下各种原子类，不细说。
+4. 基于CPU指令硬件层实现
