@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "捡起JavaScript(2)"
+title: "捡起JS原型(2)"
 date: "2017-03-11 09:28:40 +0800"
 categories: JS
 tags: JS

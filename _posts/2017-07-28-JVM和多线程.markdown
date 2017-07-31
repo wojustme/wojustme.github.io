@@ -226,6 +226,6 @@ public class RemoveLock {
 ## 无锁操作
 
 1. 乐观锁一中表现形式
-2. CAS(Compare And Swap) => 非阻塞的同步，操作(V、E、N三个数)，V表示要更新的变量、E表示期望值、N表示新的值，当且晋档V == E,则把N赋值给V
+2. CAS(Compare And Swap) => 非阻塞的同步，操作(V、E、N三个数)，V表示要更新的变量、E表示期望值、N表示新的值，当且仅当V == E,则把N赋值给V
 3. java.util.concurrent.atomic包下各种原子类，不细说。
 4. 基于CPU指令硬件层实现

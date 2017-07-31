@@ -1,0 +1,202 @@
+---
+layout: post
+title: "JVM执行栈的学习"
+date: "2017-07-30 16:12:27 +0800"
+categories: JVM学习
+tags: JVM
+excerpt: JVM学习-虚拟机栈的小学习
+mathjax: true
+---
+
+* content
+{:toc}
+
+## JVM的栈帧结构
+
+1. 栈帧是虚拟机进行方法调用和方法执行的数据结构，它是虚拟机运行时数据区中的虚拟机栈的栈元素。
+2. 栈帧存着了方法的局部变量表、操作数栈、动态连接和方法返回地址等信息。
+
+![image](../../../../public/img/jvm/JVM虚拟机栈帧结构.png)
+
+### 局部变量表
+
+1. 存储传入函数的变量，按照0, 1, ...依次占位(slot)
+2. 如果是实例方法，那局部变量表中第0个slot所任是用于传递方法所属对象实力的引用，其余按照参数表顺序排列
+3. 默认值情况，一般认为JVM会给变量赋予初始值，然后在虚拟机栈帧，在每个变量调用使用前，必须初始化过
+4. 为了尽可能的节省栈帧空间，局部变量表的slot是可以重用的，即会出现gc操作
+
+{% highlight Java %}
+// 未重用slot
+public class SlotGcTest {
+  public static void main(String[] args) {
+    {
+      byte[] placeholder = new byte[64 * 1024 * 1024];
+    }
+    System.gc();
+  }
+}
+/*输出(-verbose:gc)
+[GC (System.gc())  68897K->66088K(125952K), 0.0011555 secs]
+[Full GC (System.gc())  66088K->65984K(125952K), 0.0110310 secs]
+ */
+// 重用slot
+ public class SlotGcTest {
+   public static void main(String[] args) {
+     {
+       byte[] placeholder = new byte[64 * 1024 * 1024];
+     }
+     int a = 0;
+     System.gc();
+   }
+ }
+ /*输出(-verbose:gc)
+ [GC (System.gc())  68232K->66072K(125952K), 0.0114490 secs]
+ [Full GC (System.gc())  66072K->448K(125952K), 0.0276080 secs]
+  */
+{% endhighlight %}
+总结：
+1. 显然第二段代码将内部的slot重用了，进行gc后空间减少了；而第一段代码，并没有进行gc操作重用slot，尽管placeholder离开了对应的作用域。
+2. GC Roots一部分局部变量表还保持着对他的关联，没有及时打断。
+3. 有时将不再使用的变量设置为null，并不一定有效。
+
+
+### 操作数栈
+
+1. 同局部变量表一样，操作数栈的最大深度也在编译的时候写入Code属性max_stacks数据项中
+2. 在方法执行的任何时候，操作数栈的深度都不会超过在max_stacks数据项中的设定的最大值
+
+通过一则四则运算来简单解析一下操作数栈的运行流程
+
+{% highlight Java %}
+public class Calc {
+	public int calc() {
+		int a = 500;
+		int b = 200;
+		int c = 50;
+		return (a + b) / c;
+	}
+}
+// 查看class文件结构 => javap -verbose Calc
+/*
+Classfile /Users/wojustme/test/Calc.class
+  Last modified 2017-7-31; size 262 bytes
+  MD5 checksum 2cc533222e761a649d19a9e68fa6752b
+  Compiled from "Calc.java"
+public class Calc
+  minor version: 0
+  major version: 52
+  flags: ACC_PUBLIC, ACC_SUPER
+Constant pool:
+   #1 = Methodref          #3.#12         // java/lang/Object."<init>":()V
+   #2 = Class              #13            // Calc
+   #3 = Class              #14            // java/lang/Object
+   #4 = Utf8               <init>
+   #5 = Utf8               ()V
+   #6 = Utf8               Code
+   #7 = Utf8               LineNumberTable
+   #8 = Utf8               calc
+   #9 = Utf8               ()I
+  #10 = Utf8               SourceFile
+  #11 = Utf8               Calc.java
+  #12 = NameAndType        #4:#5          // "<init>":()V
+  #13 = Utf8               Calc
+  #14 = Utf8               java/lang/Object
+{
+  public Calc();
+    descriptor: ()V
+    flags: ACC_PUBLIC
+    Code:
+      stack=1, locals=1, args_size=1
+         0: aload_0
+         1: invokespecial #1                  // Method java/lang/Object."<init>":()V
+         4: return
+      LineNumberTable:
+        line 1: 0
+
+  public int calc();
+    descriptor: ()I
+    flags: ACC_PUBLIC
+    Code:
+      stack=2, locals=4, args_size=1
+         0: sipush        500
+         3: istore_1
+         4: sipush        200
+         7: istore_2
+         8: bipush        50
+        10: istore_3
+        11: iload_1
+        12: iload_2
+        13: iadd
+        14: iload_3
+        15: idiv
+        16: ireturn
+      LineNumberTable:
+        line 3: 0
+        line 4: 4
+        line 5: 8
+        line 6: 11
+}
+SourceFile: "Calc.java"
+ */
+{% endhighlight %}
+解析：
+1. 单看calc函数部分，发现stack表示操作数栈深度，局部变量有四个，输入参数个数有1
+2. 依次的序号0~10有，将500压栈，弹出给索引为1的局部变量存储；同样200，50分别经过压栈弹出存储
+3. 序号11~16，加载并压栈变量1，变量2，进行相加，加载并压栈变量3，进行相除，将最后栈内元素弹出，返回
+4. 前面序号表示是程序计数器
+
+
+### 动态连接
+
+每个栈帧都包含一个指向运行时常量池中该栈帧所属方法的引用，持有这个引用是为了支持方法调用过程中的动态连接
+1. invokestatic => 调用静态方法
+2. invokespecial => 调用实例构造器<init>方法、私有方法、父类方法
+3. invokevirtual => 调用所有的虚方法
+4. invokeinterface => 调用接口方法，会在运行时再确定一个实现此接口的对象
+5. invokedynamic => 先在运行时动态解析出调用点限定符所引用的方法，然后再执行该方法(有用户所设定的引用方法决定的)
+
+
+### 方法返回地址
+
+1. 正常退出 => 调用者的PC计数器的值就可以作为返回地址，栈帧中很可能保存了这个计数器值
+2. 异常退出 => 返回地址是要通过异常处理器来确定的，栈帧中一般不会保存这部分信息
+3. 方法退出的过程实际上等同于把当前栈帧出栈，因此退出时可能执行的操作有：恢复上层方法的局部变量表和操作数栈，如果有返回值，则把它压入调用者栈帧的操作数栈中，调整PC计数器的值以指向方法调用指令后面的一条指令
+
+
+### 附加信息
+
+虚拟机规范允许添加到栈帧中，eg：调试相关的信息
+
+
+## 递归和迭代
+
+1. 递归有可能会引起栈溢出，而迭代永远不会触发这类问题
+2. 一般而言，递归的开销比迭代要大
+3. 递归前一个执行方法，需要保存状态，以供下一个方法执行完，返回
+
+{% highlight Java %}
+// 递归
+public class Recursion {
+  public static void sayHello() {
+    sayHello();
+  }
+}
+// 迭代
+public class Iteration {
+  public static void sayHello() {
+    while (true) {
+      // ....
+    }
+  }
+}
+{% endhighlight %}
+解析：
+1. StackOverflowError表示当栈深度超过虚拟机分配给线程的栈大小时就会出现此error
+2. 递归会不断压栈，但却没有方法出栈，如果一个不合法的或者较深的递归调用，就是只压栈不出栈的情况一种
+3. 没有方法栈的压入压出的操作，所以不会引起栈溢出的error，每次都都会更新操作数栈而已
+
+
+## 一些小知识
+
+1. -Xss256K => 设置每个线程的运行时栈的大小为 256K
+2. 可运行的栈的深度并不确定，与JVM栈总大小、局部变量、操作数栈相关，基本深度 = JVM栈总大小 - 局部变量 -操作数栈
