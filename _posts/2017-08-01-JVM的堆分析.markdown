@@ -1,0 +1,66 @@
+---
+layout: post
+title: "JVM的堆分析"
+date: "2017-08-01 09:12:27 +0800"
+categories: JVM学习
+tags: JVM
+excerpt: JVM学习-堆分析
+mathjax: true
+---
+
+* content
+{:toc}
+
+## JVM的内存区间
+
+堆、永久区、线程栈、直接内存
+
+系统可分配内存空间 = 堆 + 线程栈空间 + 直接内存
+
+内存溢出的原因，也是针对上述四个区间的
+1. 堆溢出(java.lang.OutOfMemoryError: Java heap space...) => 解决方法：增大堆空间，及时释放内存
+2. 永久区(Caused by: java.lang.OutOfMemoryError: PermGen space) => 解决方法：增大Perm区，允许Class回收
+3. Java栈溢出(Exception in thread "main" java.lang.OutOfMemoryError: unable to create new native thread) => 解决方法：减少堆内存，减少线程栈大小
+4. 直接内存溢出(ByteBuffer.allocateDirect()无法从操作系统获得足够的空间
+导致的Exception in thread "main" java.lang.OutOfMemoryError at sun.misc.Unsafe.allocateMemory) => 解决方法：减少堆内存，有意触发GC
+5. 总的解决办法 => 共同致富、厚此薄彼
+
+
+## OutOfMemoryError与StackOverflowError
+
+1. 我觉得JVM错误中最关键的就是这两个了
+2. 同时在Java方法调用执行的过程中都有可能发生这两种错误
+
+{% highlight Java %}
+// VM的配置-Xss512k -Xmx1m -Xms1m
+public class OutOfMemoryTest {
+  public static void main(String[] args){
+    List list = new ArrayList();
+    for(;;){
+      int[] tmp = new int[1000000];
+      list.add(tmp);
+    }
+  }
+}
+// Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+public class StackOverflowTest {
+  public static void main(String[] args) {
+    method();
+  }
+  public static void method(){
+    for(;;)
+      method();
+  }
+}
+// Exception in thread "main" java.lang.StackOverflowError
+{% endhighlight %}
+总结：(个人觉得，没有找到对应的解释)
+1. 堆溢出是没法分配方法中new出来的对象或数组空间
+2. 栈溢出是当前线程的栈空间没法安排新的方法入栈进行调用执行
+
+
+## 工具使用
+**这些工具呢，虽然我工作中暂时还没用到，但是我会根据网上的教程和资料，我会利用一下周末时间都来试试，小总结一下**
+### MAT
+### Visual VM
+### Jconsole
