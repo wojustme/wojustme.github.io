@@ -1,0 +1,125 @@
+---
+layout: post
+title: "Java多线程2"
+date: "2017-08-02 19:00:00 +0800"
+categories: Java
+tags: Java多线程
+excerpt: Java多线程的锁同步
+mathjax: true
+---
+
+* content
+{:toc}
+
+## 内置锁(synchronized)
+1. synchronized定义了临界区，每次只允许一个线程进入该临界区
+2. 可以修饰方法名
+3. 可以修饰实例对象，锁定实例
+4. 可以修饰类对象，锁定类
+5. 具有重入功能，当一个线程得到一个对象锁后，再次请求此对象锁时是可以再次得到该对象的锁的
+6. 定制化较低，比如没法做出类似读写分离锁的功能
+
+## 对象锁(接口Lock)
+1. 至关重要的一点，使用Lock的方法必须要有try{}finally{}
+2. 由于Lock是一个接口，它具有多种实现：ReentrantLock(重入锁)
+3. 包含一个重要的功能tryLock，可以尝试去获取lock，会立即返回，可以依据锁获取情况的不同来进行流程
+4. 锁释放一定放在fnally中，因为一些其他异常情况退出，会没法释放锁的
+
+## 读写锁(接口ReadWriteLock)
+1. 唯一实现类ReentrantReadWriteLock，读写分离
+2. 读锁readLock实现了Lock接口
+3. 写锁writeLock同样也实现了Lock接口
+4. 类似可以自己实现一个读写锁
+
+{% highlight Java %}
+public class MyReadWriteLock {
+  // 读锁的个数
+  private int readers = 0;
+  // 写锁的个数
+  private int writers = 0;
+  // 期待写的个数
+  private int writeRequests = 0;
+  public synchronized void lockRead() throws InterruptedException {
+    // 如果写锁的个数或者期待拿到写锁的个数大于0，则阻塞
+    while(writers > 0 || writeRequests > 0){
+      wait();
+    }
+    readers++;
+  }
+  public synchronized void unlockRead(){
+    // 释放读锁，通知其他的
+    readers--;
+    notifyAll();
+  }
+  public synchronized void lockWrite() throws InterruptedException {
+    writeRequests++;
+    // 如果读锁个数或者写锁个数大于0，则等待这两个锁的释放
+    while(readers > 0 || writers > 0){
+      wait();
+    }
+    // 获得写锁，将等待的期望写锁个数减1，写锁个数加1
+    writeRequests--;
+    writers++;
+  }
+  public synchronized void unlockWrite() throws InterruptedException {
+    // 释放写锁，通知其他的
+    writers--;
+    notifyAll();
+  }
+}
+{% endhighlight %}
+
+## 条件同步Condition
+1. 用来替代传统的Object的wait()、notify()实现线程间的协作
+2. Condition依赖于Lock接口，生成一个Condition的基本代码是lock.newCondition()
+3. 调用Condition的await()和signal()方法，都必须在lock保护之内，就是说必须在lock.lock()和lock.unlock之间才可以使用
+4. Conditon的await() => Object的wait()、Condition中的signal() => Object的notify()；、Condition中的signalAll() => Object的notifyAll()
+{% highlight Java %}
+public class ConditionTest {
+  final Lock lock = new ReentrantLock();
+  final Condition condition = lock.newCondition();
+  public static void main(String[] args) {
+    ConditionTest test = new ConditionTest();
+    Producer producer = test.new Producer();
+    Consumer consumer = test.new Consumer();
+    consumer.start();
+    producer.start();
+  }
+
+  class Consumer extends Thread{
+    @Override
+    public void run() {
+      consume();
+    }
+    private void consume() {
+      try {
+        lock.lock();
+        System.out.println("我在等一个新信号"+this.currentThread().getName());
+        condition.await();
+      } catch (InterruptedException e) {
+        e.printStackTrace();
+      } finally{
+        System.out.println("拿到一个信号"+this.currentThread().getName());
+        lock.unlock();
+      }
+    }
+  }
+
+  class Producer extends Thread{
+    @Override
+    public void run() {
+      produce();
+    }
+    private void produce() {
+      try {
+        lock.lock();
+        System.out.println("我拿到锁"+this.currentThread().getName());
+        condition.signalAll();
+        System.out.println("我发出了一个信号："+this.currentThread().getName());
+      } finally{
+        lock.unlock();
+      }
+    }
+  }
+}
+{% endhighlight %}
