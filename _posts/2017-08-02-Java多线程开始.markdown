@@ -1,0 +1,129 @@
+---
+layout: post
+title: "Java多线程1"
+date: "2017-08-02 09:00:00 +0800"
+categories: Java
+tags: Java多线程
+excerpt: Java多线程开始
+mathjax: true
+---
+
+* content
+{:toc}
+
+## Java线程的起步
+
+### 线程的创建
+就个人而言，在Java中，暂时遇到四种创建方式
+1. 继承Thread
+2. 实现Runnable
+3. 通过线程池来获得线程
+4. 实现CallBack(这个是带有返回值的线程，需要通过线程池来获取Future对象，并获得返回值)
+
+### 线程的启动
+避开JVM底层代码，只考虑API层面的话，暂时就两种
+1. 对Thread对象或子类对象调用start方法
+2. 对线程池调用submit方法
+
+### 线程的关闭
+这个就比较复杂了，还是要分是否为线程池来划分
+1. 线程池关闭，就是关闭池内所有的线程，API层面有(shutdown等待池内线程完成、shutdownNow强制关闭，不管是否池内还有运行的线程)
+2. 通过自己基于Thread来启动的线程，可以通过一个标记位来关闭(这个标记为一定要具有可见性，不然对吧)
+3. 其他线程发送中断信号(线程对象调用interrupt)，让该线程获得该中断信息，自己判断是否关闭离开，即退出run方法(使用实例isInterrupted或静态interrupted方法监听中断信号)尽量有个空转指令，不然速度太快，还没来得及监听处理就跳过了
+4. 异常中断通知(InterruptedException)，适用于本线程中的方法调用，总的来说异常也是属于一种事件处理机制
+
+### 线程休眠
+在这段空闲时间，线程不占用计算机资源，当它继续执行的CPU时钟来临时，JVM会选中它继续执行。
+1. Thread的sleep方法
+2. TimeUnit中枚举类的sleep方法(封装了一层Thread的sleep方法)
+
+### 等待线程的终止
+有时需要等待其他线程完成，使用join方法
+{% highlight Java %}
+public class WaitFinish implements Runnable  {
+  private String name;
+  private int sleepTime;
+  public WaitFinish(String name, int sleepTime) {
+    this.name = name;
+    this.sleepTime = sleepTime;
+  }
+  @Override
+  public void run() {
+    System.out.println("begin " + name + new Date());
+    try {
+      TimeUnit.SECONDS.sleep(sleepTime);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
+    System.out.println("finish " + name + new Date());
+  }
+
+  public static void main(String[] args) {
+    Thread thread1 = new Thread(new WaitFinish("wait1", 4), "wait1");
+    Thread thread2 = new Thread(new WaitFinish("wait2", 8), "wait2");
+    System.out.println("begin main " + new Date());
+    thread1.start();
+    thread2.start();
+    try {
+      thread1.join();
+      thread2.join();
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
+    System.out.println("this is ok...");
+    System.out.println("end main " + new Date());
+  }
+}
+{% endhighlight %}
+
+## 线程一些小信息
+
+### 守护线程
+1. 优先级极低的线程，当没有其他线程才会运行守护线程
+2. 通过setDaemon方法设置，必须在start方法前设置
+3. isDaemon方法来检查是否为守护线程
+
+### 异常处理
+1. run方法不具有throws异常功能，所以，所有的异常都必须在run方法中catch住
+2. 静态方法setDefaultUncaughtExceptionHandler为所有的线程对象创建一个异常处理器(该异常未捕获过)
+3. 当线程抛出一个未捕获的异常，处理过程(查找线程对象的未捕获异常处理器 => 查找线程对象所在的线程组的未捕获异常处理器 => JVM则查找默认的未捕获异常处理器 => 还没有，则打印控制台，退出程序)
+
+### 线程组
+
+{% highlight Java %}
+public class ThreadGroupTest {
+  public static void main(String[] args) {
+    ThreadGroup threadGroup = new ThreadGroup("myGroup");
+    Thread thread1 = new Thread(threadGroup, new PrintExctor(), "thread-1");
+    Thread thread2 = new Thread(threadGroup, new PrintExctor(), "thread-2");
+    thread1.start();
+    thread2.start();
+    System.out.println("执行时，活动的线程数有：" + threadGroup.activeCount());
+    try {
+      thread1.join();
+      thread2.join();
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
+    System.out.println("执行完，活动的线程数有：" + threadGroup.activeCount());
+  }
+}
+class PrintExctor implements Runnable {
+  @Override
+  public void run() {
+    try {
+      TimeUnit.SECONDS.sleep(5);
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
+  }
+}
+/* 输出
+执行时，活动的线程数有：2
+执行完，活动的线程数有：0
+ */
+{% endhighlight %}
+
+### 线程工厂
+1. 设计模式-工厂模式(统一管理入口)
+2. 实现ThreadFactory接口，实现newThread方法，传入Runnable输出Thread类

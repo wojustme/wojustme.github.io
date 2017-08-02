@@ -1,0 +1,55 @@
+---
+layout: post
+title: "MyStorm的简介和展望"
+date: "2017-08-01 20:00:00 +0800"
+categories: 大数据
+tags: Storm
+excerpt: Storm, JStorm, MyStorm傻傻分不清
+mathjax: true
+---
+
+* content
+{:toc}
+
+## 开篇大吉
+
+### Storm
+1. Storm不多说，给个链接，自己去体会一下[官网](http://storm.apache.org/)
+2. 抽象组件层面：Spout(数据生产组件)、Bolt(逻辑处理组件)
+3. 架构层面：Nimbus(监控任务状态)、Supervisor(监控工作状态)、ZooKeeper(协调)
+4. 工作层面：Worker、Exector、Task
+5. 不足的话：Nimbus(单点故障，1.0搞定)、业务代码巨多，不精练、源码语言不想吐槽了、水压机制欠缺(https://github.com/apache/storm/pull/700)……
+
+### JStorm
+1. 阿里开源，Java重写Storm代码
+2. 传说修复了Storm的N多bug
+3. 使用TopologyMaster来协调拓扑进入反压状态，这降低了ZooKeeper的负载
+4. 同样，API太挫，写业务代码简直让人怀疑人生
+
+### MyStorm
+1. 个人作品，主要参考了Storm、Flink；(有条不紊地即将上市)
+2. 目标只有一个好用
+3. [demo地址](https://github.com/wojustme/mystorm-all)
+
+
+## MyStorm小介绍
+
+### 功能点(暂时只想到这么多)
+1. topology的submit、kill(基本点)
+2. 好用的API(绝逼要向Spark、Flink学习)
+3. 好看的UI界面(作为一个半前端码农，啥也不说了)
+4. 反压检测(智能化代表)
+5. 数据倾斜(流处理框架的痛点，应该这么说吧，逻辑驱动数据型框架都有这个弊端)
+
+### 基于现有写完的demo总结
+1. 网络通信bug => 每次数据传输，都要创建网络通信(可不可以有个网络连接池 && 区分开本地传输还是网络传输)
+2. 数据序列化bug => 现在使用JSON字符串(使用protobuf)
+3. 状态结构bug => 现有的状态结构，数据太冗余了，一定要重新设计编写
+4. 线程管理 => 这个不是bug，只是寻找更好一种方式来控制线程创建和销毁
+
+### 使用的组件
+1. ZooKeeper
+2. Netty
+3. httpclient
+4. gson
+5. protobuf
