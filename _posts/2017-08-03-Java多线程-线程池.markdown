@@ -1,0 +1,240 @@
+---
+layout: post
+title: "Java多线程3"
+date: "2017-08-03 21:00:00 +0800"
+categories: Java
+tags: Java多线程
+excerpt: Java多线程-线程池
+mathjax: true
+---
+
+* content
+{:toc}
+
+## 线程池的好处
+1. 降低资源消耗。通过重复利用已创建的线程降低线程创建和销毁造成的消耗。
+2. 提高响应速度。当任务到达时，任务可以不需要的等到线程创建就能立即执行。
+3. 提高线程的可管理性。
+
+### 几个重要JDK类介绍
+1. Executors(类)
+2. ExecutorService(接口)
+3. Executor(接口)
+4. ScheduledExecutorService(接口)
+
+针对Executor、ExecutorService、ScheduledExecutorService之间的继承关系，这三个就是线程池器，一般来说都是使用ExecutorService，而针对任务调用的线程则使用ScheduledExecutorService
+![image](../../../../public/img/multithread/线程池1.png)
+
+Executors是一个工厂方法，现在提供了newFixedThreadPool、newSingleThreadExecutor、newCachedThreadPool等创建线程池的方法
+![image](../../../../public/img/multithread/线程池2.png)
+
+## JDK自带的几种创建线程池的静态方法
+
+### newFixedThreadPool
+创建固定大小的线程的线程池
+{% highlight Java %}
+public static ExecutorService newFixedThreadPool(int nThreads) {
+        return new ThreadPoolExecutor(nThreads, nThreads,
+                                      0L, TimeUnit.MILLISECONDS,
+                                      new LinkedBlockingQueue<Runnable>());
+    }
+{% endhighlight %}
+显然：初始化设置的个数即为线程数、线程任务队列使用LinkedBlockingQueue这种无界队列，即表示可以一直往线程池中丢线程任务。
+
+### newSingleThreadExecutor
+一个线程的线程池
+{% highlight Java %}
+public static ExecutorService newSingleThreadExecutor() {
+        return new FinalizableDelegatedExecutorService
+            (new ThreadPoolExecutor(1, 1,
+                                    0L, TimeUnit.MILLISECONDS,
+                                    new LinkedBlockingQueue<Runnable>()));
+    }
+{% endhighlight %}
+同样使用无界队列，表示可以一直往线程池中丢任务
+
+### newCachedThreadPool
+不限制最大线程数量，线程空闲60s会被回收
+{% highlight Java %}
+public static ExecutorService newCachedThreadPool() {
+        return new ThreadPoolExecutor(0, Integer.MAX_VALUE,
+                                      60L, TimeUnit.SECONDS,
+                                      new SynchronousQueue<Runnable>());
+    }
+{% endhighlight %}
+Integer.MAX_VALUE表示没有线程数据最大值没有限制，这个线程池根据需要（新任务到来时）创建新的线程，如果有空闲线程则会重复使用，线程空闲了60秒后会被回收。
+
+### newScheduledThreadPool
+创建一个大小无限的线程池。此线程池支持定时以及周期性执行任务的需求。
+{% highlight Java %}
+public static ScheduledExecutorService newScheduledThreadPool(int corePoolSize) {
+        return new ScheduledThreadPoolExecutor(corePoolSize);
+    }
+    // ScheduledThreadPoolExecutor的构造方法
+    public ScheduledThreadPoolExecutor(int corePoolSize) {
+        super(corePoolSize, Integer.MAX_VALUE, 0, NANOSECONDS,
+              new DelayedWorkQueue());
+    }
+{% endhighlight %}
+其中DelayedWorkQueue是一个定时任务的队列
+![image](../../../../public/img/multithread/线程池3.png)
+显然ScheduledThreadPoolExecutor中的Super还是会调用ThreadPoolExecutor的构造方法
+
+### newWorkStealingPool
+创建一个拥有多个任务队列（以便减少连接数）的线程池，利用所有运行的处理器数目来创建一个工作窃取的线程池
+
+个人感觉是给JDK8中的Streams API使用的，反正我个人是没有使用到过。
+
+{% highlight Java %}
+public static ExecutorService newWorkStealingPool() {
+        return new ForkJoinPool
+            (Runtime.getRuntime().availableProcessors(),
+             ForkJoinPool.defaultForkJoinWorkerThreadFactory,
+             null, true);
+    }
+{% endhighlight %}
+ForkJoinPool的类继承关系图，如下
+![image](../../../../public/img/multithread/线程池4.png)
+
+## 自定义线程池
+
+我们发现除了newWorkStealingPool方法外，其他的直接或间接的使用到ThreadPoolExecutor这个类，那么我们可以断定我们自定义一个线程池的话，也是new出这个ThreadPoolExecutor类的实例，那么查看它最基本的构造器源代码如下
+
+{% highlight Java %}
+public ThreadPoolExecutor(int corePoolSize,
+                              int maximumPoolSize,
+                              long keepAliveTime,
+                              TimeUnit unit,
+                              BlockingQueue<Runnable> workQueue,
+                              ThreadFactory threadFactory,
+                              RejectedExecutionHandler handler) {
+        if (corePoolSize < 0 ||
+            maximumPoolSize <= 0 ||
+            maximumPoolSize < corePoolSize ||
+            keepAliveTime < 0)
+            throw new IllegalArgumentException();
+        if (workQueue == null || threadFactory == null || handler == null)
+            throw new NullPointerException();
+        this.corePoolSize = corePoolSize;
+        this.maximumPoolSize = maximumPoolSize;
+        this.workQueue = workQueue;
+        this.keepAliveTime = unit.toNanos(keepAliveTime);
+        this.threadFactory = threadFactory;
+        this.handler = handler;
+    }
+{% endhighlight %}
+那么我们针对这个构造方法，进行名词解释
+1. corePoolSize => 当前核心线程数
+2. maximumPoolSize => 最大线程数
+3. keepAliveTime => 线程保持空闲时间
+4. unit => 线程保持空闲时间的单位(时分秒等等)
+5. workQueue => 存放线程任务的缓存队列
+6. threadFactory => 线程工厂
+7. handler => 当拒绝接收线程任务时处理的方法
+
+{% highlight Java %}
+// 假设有6个任务，针对不同线程池pool会有不同的表现
+MyTask mt1 = new MyTask(1, "任务1");
+MyTask mt2 = new MyTask(2, "任务2");
+MyTask mt3 = new MyTask(3, "任务3");
+MyTask mt4 = new MyTask(4, "任务4");
+MyTask mt5 = new MyTask(5, "任务5");
+MyTask mt6 = new MyTask(6, "任务6");
+pool.execute(mt1);
+pool.execute(mt2);
+pool.execute(mt3);
+pool.execute(mt4);
+pool.execute(mt5);
+pool.execute(mt6);
+
+// 有界队列
+ThreadPoolExecutor pool = new ThreadPoolExecutor(
+	1, 				//coreSize
+	2, 				//MaxSize
+	60, 			//60
+	TimeUnit.SECONDS,
+	new ArrayBlockingQueue<Runnable>(3)			//指定一种队列 （有界队列）
+	);
+// 将6个任务依次加入线程池
+/* 执行顺序
+mt1, mt5, 报错, mt2, mt3, mt4
+*/
+// -----------------------------------------
+// 无界队列
+ThreadPoolExecutor pool = new ThreadPoolExecutor(
+	1, 				//coreSize
+	2, 				//MaxSize
+	60, 			//60
+	TimeUnit.SECONDS,
+	new LinkedBlockingQueue<Runnable>()			//指定一种队列 （无界队列）
+	);
+// 将6个任务依次加入线程池
+/* 执行顺序
+mt1, mt2, mt3, mt4, mt5, mt6
+*/
+{% endhighlight %}
+总结：
+1. 如果使用的是有界队列，执行顺序：新添加线程任务 => 先按照coreSize执行 => 新添加的任务，进入队列中 => 当队列塞不下任务时，查看MaxSize - coreSize还剩多少，以需要添加的任务数和剩余量最小值执行，此时是并行执行，并且同时修改coreSize值为该并行执行值 => 如果添加的任务数 > 剩余量时，则执行handler方法(默认抛出异常继续执行) => 此时一批coreSize大小的线程执行完，则讲队列中任务出列(出列个数与此时的coreSize值相同)，一起执行 => 直到队列中线程任务全部完成
+2. 如果使用的是无界队列，MaxSize值则不起任何作用，因为队列就是没塞不进的情况，执行顺序：新添加线程任务 => 先按照coreSize值执行 => 新添加的任务，进入队列中 => 每执行完一批，就继续从队列中取一批 => 直到队列中线程任务全部完成
+3. 无界队列的线程池直到消耗光内存为止，比较可怕。
+
+
+## 线程池的拒绝策略
+
+### JDK默认
+1. AbortPolicy => 直接抛出异常，系统继续正常工作
+2. CallerRunsPolicy => 只要线程池未关闭，该策略直接在调用者线程中运行当前被丢弃的任务
+3. DiscardOldestPolicy => 丢弃最老的线程任务请求
+4. DiscardPolicy => 丢弃无法处理任务，不给于任何处理
+
+### 自定义策略处理器
+实现RejectedExecutionHandler接口，一般都是两种处理方法
+1. 返回给客户，拒绝消息
+2. 写入日志，未来处理
+
+## 线程池的API
+
+### Executor
+1. void execute(Runnable command);
+
+### ExecutorService
+1. void shutdown(); 完成关闭
+2. List<Runnable> shutdownNow(); 直接关闭，不管是否完成
+3. boolean awaitTermination(long timeout, TimeUnit unit) throws InterruptedException; 等待一段时间终止
+4. <T> Future<T> submit(Callable<T> task); 提交回调任务，有返回值
+5. <T> Future<T> submit(Runnable task, T result); 提交线程任务，返回值为result值
+6. Future<?> submit(Runnable task); 提交线程任务，返回值为null
+7. boolean isShutdown(); 判断线程池是否关闭
+8. boolean isTerminated(); 判断线程池中的所有线程是否终止
+9. 等等...
+
+### ScheduledExecutorService
+1. public ScheduledFuture<?> schedule(Runnable command, long delay, TimeUnit unit);
+2. public <V> ScheduledFuture<V> schedule(Callable<V> callable, long delay, TimeUnit unit);
+3. public ScheduledFuture<?> scheduleAtFixedRate(Runnable command, long initialDelay, long period, TimeUnit unit);
+4. public ScheduledFuture<?> scheduleWithFixedDelay(Runnable command, long initialDelay, long delay, TimeUnit unit);
+
+### 关于isShutdown与isTerminated
+
+{% highlight Java %}
+public class PoolTest {
+  public static void main(String[] args) throws Exception {
+    ExecutorService pool = Executors.newFixedThreadPool(1);
+    System.out.println("pool isShutdown -> " + pool.isShutdown());
+    System.out.println("pool isTerminated -> " + pool.isTerminated());
+    Future<?> hello = pool.submit(new Runnable() {
+      @Override
+      public void run() {
+        System.out.println("线程运行hello...");
+      }
+    });
+    hello.get();
+    System.out.println("pool isShutdown -> " + pool.isShutdown());
+    System.out.println("pool isTerminated -> " + pool.isTerminated());
+    pool.shutdown();
+    System.out.println("pool isShutdown -> " + pool.isShutdown());
+    System.out.println("pool isTerminated -> " + pool.isTerminated());
+  }
+}
+{% endhighlight %}
+总结，待更新。。。
