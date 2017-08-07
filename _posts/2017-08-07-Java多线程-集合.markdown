@@ -1,0 +1,58 @@
+---
+layout: post
+title: "Java多线程4"
+date: "2017-08-07 12:00:00 +0800"
+categories: Java
+tags: Java多线程
+excerpt: Java多线程-集合
+mathjax: true
+---
+
+* content
+{:toc}
+
+## JUC包中集合
+为高并发提供的一些集合类
+
+### 接口
+1. BlockingDeque => 阻塞的双端队列
+2. BlockingQueue => 阻塞的队列
+3. ConcurrentMap => 线程安全的的KV存储
+4. ConcurrentNavigableMap => 有序KV存储
+5. TransferQueue => 生产者会一直阻塞直到所添加到队列的元素被某一个消费者所消费(不仅仅是添加到队列里就完事)
+
+### 实现类
+1. ArrayBlockingQueue => 通过数组形式实现的BlockingQueue
+2. ConcurrentHashMap => key非空，线程安全
+3. ConcurrentLinkedDeque => 基于链表的无限空间双端队列
+4. ConcurrentLinkedQueue => 基于链表的无限空间队列
+5. ConcurrentSkipListMap => ConcurrentNavigableMap的实现
+6. ConcurrentSkipListSet => 有序的Set集合(应该说是迭代取元素时，显示有序)
+7. CopyOnWriteArrayList => 写时，复制，基于数组的列表实现
+8. CopyOnWriteArraySet => 写时，复制，基于数组的集合实现
+9. DelayQueue => 延时队列
+10. LinkedBlockingDeque => 可选择的大小的阻塞双端队列，基于链表实现
+11. LinkedBlockingQueue => 可选择的大小的阻塞队列，基于链表实现
+12. LinkedTransferQueue => 接口TransferQueue的实现
+13. PriorityBlockingQueue => 带有优先级的阻塞队列
+14. SynchronousQueue => 必须不同的线程来进行数据通信
+
+
+## ArrayBlockingQueue的实现
+
+### 基本概念
+1. 通过数组来存储数据
+2. 有界阻塞，如果存储空间满了，则不允许向该队列插入数据；如果当前空间为空，则不允许从该队列中获取数据
+3. 线程安全，通过ReentrantLock锁来保证
+4. 通过Condition来保证两个极限状态数组为空、数组已满
+
+### 字段
+1. items => 当前队列容量
+2. takeIndex => 获取的索引
+3. putIndex => 插入的索引
+4. count => 当前队列数目
+5. lock => 重入锁
+6. notEmpty => 条件变量非空
+7. notFull => 条件变量非满
+
+### 方法
