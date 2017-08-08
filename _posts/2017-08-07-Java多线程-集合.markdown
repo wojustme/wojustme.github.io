@@ -47,12 +47,219 @@ mathjax: true
 4. 通过Condition来保证两个极限状态数组为空、数组已满
 
 ### 字段
-1. items => 当前队列容量
-2. takeIndex => 获取的索引
-3. putIndex => 插入的索引
-4. count => 当前队列数目
-5. lock => 重入锁
-6. notEmpty => 条件变量非空
-7. notFull => 条件变量非满
+1. Object[] items => 当前队列容量
+2. int takeIndex => 获取的索引
+3. int putIndex => 插入的索引
+4. int count => 当前队列数目
+5. ReentrantLock lock => 重入锁
+6. Condition notEmpty => 条件变量非空
+7. Condition notFull => 条件变量非满
+
+### 方法
+
+- 添加元素，非阻塞，返回标记值：public boolean add(E e)
+
+{% highlight Java %}
+// ArrayBlockingQueue
+public boolean add(E e) {
+    return super.add(e);
+}
+// AbstractQueue
+public boolean add(E e) {
+    if (offer(e))
+        return true;
+    else
+        throw new IllegalStateException("Queue full");
+}
+// ArrayBlockingQueue
+public boolean offer(E e) {
+    checkNotNull(e);
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    try {
+        if (count == items.length)
+            return false;
+        else {
+            enqueue(e);
+            return true;
+        }
+    } finally {
+        lock.unlock();
+    }
+}
+private void enqueue(E x) {
+    // assert lock.getHoldCount() == 1;
+    // assert items[putIndex] == null;
+    final Object[] items = this.items;
+    items[putIndex] = x;
+    if (++putIndex == items.length)
+        putIndex = 0;
+    count++;
+    notEmpty.signal();
+}
+{% endhighlight %}
+总结：我们发现ArrayBlockingQueue的add方法会调用父类AbstractQueue的add方法，而父类的add方法需要调用接口offer方法，该接口方法在ArrayBlockingQueue子类中实现，即最终核心代码是offer方法。该方法中使用重入锁来保证多线程安全，enqueue方法添加到数组中，然后唤醒非空状态
+
+- 添加元素，阻塞，无返回值：public void put(E e)
+
+{% highlight Java %}
+// ArrayBlockingQueue
+public void put(E e) throws InterruptedException {
+    checkNotNull(e);
+    final ReentrantLock lock = this.lock;
+    lock.lockInterruptibly();
+    try {
+        while (count == items.length)
+            notFull.await();
+        enqueue(e);
+    } finally {
+        lock.unlock();
+    }
+}
+private void enqueue(E x) {
+    // assert lock.getHoldCount() == 1;
+    // assert items[putIndex] == null;
+    final Object[] items = this.items;
+    items[putIndex] = x;
+    if (++putIndex == items.length)
+        putIndex = 0;
+    count++;
+    notEmpty.signal();
+}
+{% endhighlight %}
+总结：其中，lock()提供了无条件地轮询获取锁的方式，lockInterruptibly()提供了可中断的锁获取方式。添加元素，先拿锁，如果当前个数与数组容量相等，则一直等待非满条件变量释放，否则添加成功
+
+- 等待时间添加元素，阻塞，返回标记值：public boolean offer(E e, long timeout, TimeUnit unit)
+{% highlight Java %}
+// ArrayBlockingQueue
+public boolean offer(E e, long timeout, TimeUnit unit)
+    throws InterruptedException {
+    checkNotNull(e);
+    long nanos = unit.toNanos(timeout);
+    final ReentrantLock lock = this.lock;
+    lock.lockInterruptibly();
+    try {
+        while (count == items.length) {
+            if (nanos <= 0)
+                return false;
+            nanos = notFull.awaitNanos(nanos);
+        }
+        enqueue(e);
+        return true;
+    } finally {
+        lock.unlock();
+    }
+}
+{% endhighlight %}
+总结：offer类似put，只是在while循环中，对时间多一个判断
+
+- 获取元素，不阻塞，返回数据，如果不能获取的话，就返回null：public E poll()
+{% highlight Java %}
+// ArrayBlockingQueue
+public E poll() {
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    try {
+        return (count == 0) ? null : dequeue();
+    } finally {
+        lock.unlock();
+    }
+}
+private E dequeue() {
+    // assert lock.getHoldCount() == 1;
+    // assert items[takeIndex] != null;
+    final Object[] items = this.items;
+    @SuppressWarnings("unchecked")
+    E x = (E) items[takeIndex];
+    items[takeIndex] = null;
+    if (++takeIndex == items.length)
+        takeIndex = 0;
+    count--;
+    if (itrs != null)
+        itrs.elementDequeued();
+    notFull.signal();
+    return x;
+}
+// Itrs
+// 将元素从迭代器中移出
+void elementDequeued() {
+    // assert lock.getHoldCount() == 1;
+    if (count == 0)
+        queueIsEmpty();
+    else if (takeIndex == 0)
+        takeIndexWrapped();
+}
+// ...
+{% endhighlight %}
+总结：这种操作不是阻塞获取，当前可以获取，则返回元素；不可以获取，则返回null，通过迭代器变量来获取元素值
+
+- 阻塞获取元素，如果为空则等待：public E take()
+{% highlight Java %}
+public E take() throws InterruptedException {
+    final ReentrantLock lock = this.lock;
+    lock.lockInterruptibly();
+    try {
+        while (count == 0)
+            notEmpty.await();
+        return dequeue();
+    } finally {
+        lock.unlock();
+    }
+}
+{% endhighlight %}
+总结：类似put操作，通过可以被打断的lock操作和条件变量来控制阻塞
+
+- 阻塞获取元素，可等待时长：public E poll(long timeout, TimeUnit unit)
+{% highlight Java %}
+public E poll(long timeout, TimeUnit unit) throws InterruptedException {
+    long nanos = unit.toNanos(timeout);
+    final ReentrantLock lock = this.lock;
+    lock.lockInterruptibly();
+    try {
+        while (count == 0) {
+            if (nanos <= 0)
+                return null;
+            nanos = notEmpty.awaitNanos(nanos);
+        }
+        return dequeue();
+    } finally {
+        lock.unlock();
+    }
+}
+{% endhighlight %}
+
+- 不阻塞获取元素，，且不删除元素：public E peek()
+{% highlight Java %}
+public E peek() {
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    try {
+        return itemAt(takeIndex); // null when queue is empty
+    } finally {
+        lock.unlock();
+    }
+}
+final E itemAt(int i) {
+    return (E) items[i];
+}
+{% endhighlight %}
+总结：显然该操作没有删除操作，所以该方法只返回数据，不弹出数据
+
+## LinkedBlockingQueue的实现
+
+### 基本概念
+1. 存储结构为链表结构
+2. 因为是使用链表存储数据元素，理论上是不限容量的
+3. 可以有界，也可以无界，关键看是否设置容量
+
+### 字段
+1. int capacity => 是该队列的容量，如果不设置则为Integer.MAX_VALUE，即无限大
+2. AtomicInteger count => 适用原子变量来存储个数，这个与ArrayBlockingQueue有点不同
+3. Node<E> head => 链表的头，第一个节点不存储数组，只存储指向的指针，eg：head.item == null
+4. Node<E> last => 链表的头，最后一个节点只存数据，不存指针，eg：last.next == null
+5. ReentrantLock takeLock => 操作take、poll等操作的锁
+6. Condition notEmpty => 非空条件变量，只有获取元素，才会触发非空状态
+7. ReentrantLock putLock => 操作put、offer等操作的锁
+8. Condition notFull => 非满条件变量，检测添加元素情况
 
 ### 方法
