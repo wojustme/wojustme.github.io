@@ -22,21 +22,22 @@ mathjax: true
 5. TransferQueue => 生产者会一直阻塞直到所添加到队列的元素被某一个消费者所消费(不仅仅是添加到队列里就完事)
 
 ### 实现类
-1. ArrayBlockingQueue => 通过数组形式实现的BlockingQueue
-2. ConcurrentHashMap => key非空，线程安全
+1. ArrayBlockingQueue => 通过数组形式实现的BlockingQueue※
+2. ConcurrentHashMap => key非空，线程安全※
 3. ConcurrentLinkedDeque => 基于链表的无限空间双端队列
-4. ConcurrentLinkedQueue => 基于链表的无限空间队列
+4. ConcurrentLinkedQueue => 基于链表的无限空间队列※
 5. ConcurrentSkipListMap => ConcurrentNavigableMap的实现
 6. ConcurrentSkipListSet => 有序的Set集合(应该说是迭代取元素时，显示有序)
-7. CopyOnWriteArrayList => 写时，复制，基于数组的列表实现
-8. CopyOnWriteArraySet => 写时，复制，基于数组的集合实现
-9. DelayQueue => 延时队列
+7. CopyOnWriteArrayList => 写时，复制，基于数组的列表实现※
+8. CopyOnWriteArraySet => 写时，复制，基于数组的集合实现※
+9. DelayQueue => 延时队列※
 10. LinkedBlockingDeque => 可选择的大小的阻塞双端队列，基于链表实现
-11. LinkedBlockingQueue => 可选择的大小的阻塞队列，基于链表实现
+11. LinkedBlockingQueue => 可选择的大小的阻塞队列，基于链表实现※
 12. LinkedTransferQueue => 接口TransferQueue的实现
-13. PriorityBlockingQueue => 带有优先级的阻塞队列
+13. PriorityBlockingQueue => 带有优先级的阻塞队列※
 14. SynchronousQueue => 必须不同的线程来进行数据通信
 
+**带有※号的，在下面会着重去了解底层实现原理**
 
 ## ArrayBlockingQueue的实现
 
@@ -55,10 +56,14 @@ mathjax: true
 6. Condition notEmpty => 条件变量非空
 7. Condition notFull => 条件变量非满
 
+### 构造方法
+1. public ArrayBlockingQueue(int capacity)
+2. public ArrayBlockingQueue(int capacity, boolean fair)
+3. public ArrayBlockingQueue(int capacity, boolean fair, Collection<? extends E> c)
+
 ### 方法
 
-- 添加元素，非阻塞，返回标记值：public boolean add(E e)
-
+- 添加元素，非阻塞，返回标记值：public boolean add(E e)、public boolean offer(E e)
 {% highlight Java %}
 // ArrayBlockingQueue
 public boolean add(E e) {
@@ -98,10 +103,9 @@ private void enqueue(E x) {
     notEmpty.signal();
 }
 {% endhighlight %}
-总结：我们发现ArrayBlockingQueue的add方法会调用父类AbstractQueue的add方法，而父类的add方法需要调用接口offer方法，该接口方法在ArrayBlockingQueue子类中实现，即最终核心代码是offer方法。该方法中使用重入锁来保证多线程安全，enqueue方法添加到数组中，然后唤醒非空状态
+总结：我们发现ArrayBlockingQueue的add方法会调用父类AbstractQueue的add方法，而父类的add方法需要调用接口offer方法，该接口方法在ArrayBlockingQueue子类中实现，即最终核心代码是offer方法。该方法中使用重入锁来保证多线程安全，enqueue方法添加到数组中，然后唤醒非空状态。所以，我可以发现add和offer方法是同样作用的。
 
 - 添加元素，阻塞，无返回值：public void put(E e)
-
 {% highlight Java %}
 // ArrayBlockingQueue
 public void put(E e) throws InterruptedException {
@@ -254,7 +258,7 @@ final E itemAt(int i) {
 
 ### 字段
 1. int capacity => 是该队列的容量，如果不设置则为Integer.MAX_VALUE，即无限大
-2. AtomicInteger count => 适用原子变量来存储个数，这个与ArrayBlockingQueue有点不同
+2. AtomicInteger count => 适用原子变量来存储个数，这个与ArrayBlockingQueue有点不同，个人持有疑问WHY
 3. Node<E> head => 链表的头，第一个节点不存储数组，只存储指向的指针，eg：head.item == null
 4. Node<E> last => 链表的头，最后一个节点只存数据，不存指针，eg：last.next == null
 5. ReentrantLock takeLock => 操作take、poll等操作的锁
@@ -262,4 +266,95 @@ final E itemAt(int i) {
 7. ReentrantLock putLock => 操作put、offer等操作的锁
 8. Condition notFull => 非满条件变量，检测添加元素情况
 
+### 构造方法
+1. public LinkedBlockingQueue()
+2. public LinkedBlockingQueue(int capacity) => 会限制队列大小
+3. public LinkedBlockingQueue(Collection<? extends E> c)
+
 ### 方法
+**同样的，还是从插入数据和获取数据来入手**
+
+- 插入数据，会等待可以插入情况 => public void put(E e)
+{% highlight Java %}
+public void put(E e) throws InterruptedException {
+    if (e == null) throw new NullPointerException();
+    // Note: convention in all put/take/etc is to preset local var
+    // holding count negative to indicate failure unless set.
+    int c = -1;
+    Node<E> node = new Node<E>(e);
+    final ReentrantLock putLock = this.putLock;
+    final AtomicInteger count = this.count;
+    putLock.lockInterruptibly();
+    try {
+        while (count.get() == capacity) {
+            notFull.await();
+        }
+        enqueue(node);
+        c = count.getAndIncrement();
+        if (c + 1 < capacity)
+            notFull.signal();
+    } finally {
+        putLock.unlock();
+    }
+    if (c == 0)
+        signalNotEmpty();
+}
+{% endhighlight %}
+总结流程：获得当前队列个数，拿插入锁，如果当前个数与容量相等，等待非满条件变量触发，弹出数据，那么个数自增，如果个数小于容量，释放非满条件变量，释放锁，如果个数为零，释放非空条件变量
+- 延时插入，如果还是插入不成，则返回false => public boolean offer(E e, long timeout, TimeUnit unit)
+{% highlight Java %}
+public boolean offer(E e, long timeout, TimeUnit unit)
+    throws InterruptedException {
+    if (e == null) throw new NullPointerException();
+    long nanos = unit.toNanos(timeout);
+    int c = -1;
+    final ReentrantLock putLock = this.putLock;
+    final AtomicInteger count = this.count;
+    putLock.lockInterruptibly();
+    try {
+        while (count.get() == capacity) {
+            if (nanos <= 0)
+                return false;
+            nanos = notFull.awaitNanos(nanos);
+        }
+        enqueue(new Node<E>(e));
+        c = count.getAndIncrement();
+        if (c + 1 < capacity)
+            notFull.signal();
+    } finally {
+        putLock.unlock();
+    }
+    if (c == 0)
+        signalNotEmpty();
+    return true;
+}
+{% endhighlight %}
+总结：同样的，和ArrayBlockingQueue实现类似，基本步骤与上面的put方法类似，但是多一个时间检测
+
+- public boolean offer(E e)
+{% highlight Java %}
+public boolean offer(E e) {
+    if (e == null) throw new NullPointerException();
+    final AtomicInteger count = this.count;
+    if (count.get() == capacity)
+        return false;
+    int c = -1;
+    Node<E> node = new Node<E>(e);
+    final ReentrantLock putLock = this.putLock;
+    putLock.lock();
+    try {
+        if (count.get() < capacity) {
+            enqueue(node);
+            c = count.getAndIncrement();
+            if (c + 1 < capacity)
+                notFull.signal();
+        }
+    } finally {
+        putLock.unlock();
+    }
+    if (c == 0)
+        signalNotEmpty();
+    return c >= 0;
+}
+{% endhighlight %}
+总结：基本流程与put方法类似，只是不需要阻塞等待。
