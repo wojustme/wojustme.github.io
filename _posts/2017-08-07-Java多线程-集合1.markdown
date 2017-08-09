@@ -4,7 +4,7 @@ title: "Java多线程4"
 date: "2017-08-07 12:00:00 +0800"
 categories: Java
 tags: Java多线程
-excerpt: Java多线程-集合
+excerpt: Java多线程-集合1
 mathjax: true
 ---
 
@@ -258,7 +258,7 @@ final E itemAt(int i) {
 
 ### 字段
 1. int capacity => 是该队列的容量，如果不设置则为Integer.MAX_VALUE，即无限大
-2. AtomicInteger count => 适用原子变量来存储个数，这个与ArrayBlockingQueue有点不同，个人持有疑问WHY
+2. AtomicInteger count => 使用原子变量来存储个数，这个与ArrayBlockingQueue有点不同，个人持有疑问WHY
 3. Node<E> head => 链表的头，第一个节点不存储数组，只存储指向的指针，eg：head.item == null
 4. Node<E> last => 链表的头，最后一个节点只存数据，不存指针，eg：last.next == null
 5. ReentrantLock takeLock => 操作take、poll等操作的锁
@@ -331,7 +331,7 @@ public boolean offer(E e, long timeout, TimeUnit unit)
 {% endhighlight %}
 总结：同样的，和ArrayBlockingQueue实现类似，基本步骤与上面的put方法类似，但是多一个时间检测
 
-- public boolean offer(E e)
+- 无等待插入 => public boolean offer(E e)
 {% highlight Java %}
 public boolean offer(E e) {
     if (e == null) throw new NullPointerException();
@@ -358,3 +358,97 @@ public boolean offer(E e) {
 }
 {% endhighlight %}
 总结：基本流程与put方法类似，只是不需要阻塞等待。
+
+- 阻塞获取 => public E take()
+{% highlight Java %}
+public E take() throws InterruptedException {
+    E x;
+    int c = -1;
+    final AtomicInteger count = this.count;
+    final ReentrantLock takeLock = this.takeLock;
+    takeLock.lockInterruptibly();
+    try {
+        while (count.get() == 0) {
+            notEmpty.await();
+        }
+        x = dequeue();
+        c = count.getAndDecrement();
+        if (c > 1)
+            notEmpty.signal();
+    } finally {
+        takeLock.unlock();
+    }
+    if (c == capacity)
+        signalNotFull();
+    return x;
+}
+{% endhighlight %}
+总结：个人觉得这些代码相似性比较大，流程基本不变，拿获取锁，如果队列为空，等待非空信号触发，如果满了，触发非满信号。
+- 延时等待获取 => public E poll(long timeout, TimeUnit unit)
+- 直接获取，如果没有，则返回null => public E poll()
+- 获得数据，不删除 => public E peek()
+
+
+### 存储个数：AtomicInteger count
+
+1. 同样的，在ArrayBlockingQueue类中，用于统计当前队列的个数使用的是int类型，而这里LinkedBlockingQueue类中，用于统计个数则使用的是AtomicInteger这个原子类
+2. 在代码中哪些地方使用到变量AtomicInteger count
+
+{% highlight Java %}
+public LinkedBlockingQueue(Collection<? extends E> c)
+// 根据输入的集合初始化队列时，需要同时设置元素个数
+
+public int size()
+// 返回当前队列元素个数
+public int remainingCapacity()
+// 返回还剩多少容量
+
+put, offer, take, poll, peek
+// 插入，弹出，获取操作，需要对容量进行检验和notEmpty、notFull的条件触发
+
+void unlink(Node<E> p, Node<E> trail)
+// 删除节点
+// 具体代码如下
+void unlink(Node<E> p, Node<E> trail) {
+    p.item = null;
+    trail.next = p.next;
+    if (last == p)
+        last = trail;
+    if (count.getAndDecrement() == capacity)
+        notFull.signal();
+}
+public boolean remove(Object o) {
+    if (o == null) return false;
+    fullyLock();
+    try {
+        for (Node<E> trail = head, p = trail.next;
+             p != null;
+             trail = p, p = p.next) {
+            if (o.equals(p.item)) {
+                unlink(p, trail);
+                return true;
+            }
+        }
+        return false;
+    } finally {
+        fullyUnlock();
+    }
+}
+// 显然对外是使用remove方法，对删除元素，找到对应的数据，则调用unlink方法，在unlink方法中使用到count.getAndDecrement()。虽然在remove中已经加锁了，但是在unlink中会操作count变量，而count变量在别的地方也会被调用，所以需要原子类的原子操作来保证，如果不用AtomicInteger类，则在unlink方法中，代码会变成i++，而在多线程情况下，是非线程安全的操作
+// 其中最关键的是，对于队列来说，有读写两种操作，而在该LinkedBlockingQueue类中，读写是分锁的，所以需要通过原子类来保证变量之间的一致性
+
+public void clear()
+// 与unlink方法的作用类似
+
+public int drainTo(Collection<? super E> c, int maxElements)
+// 使用新的集合更新队列
+{% endhighlight %}
+
+## ArrayBlockingQueue和LinkedBlockingQueue对比
+
+1. ArrayBlockingQueue使用数组，LinkedBlockingQueue使用链表
+2. ArrayBlockingQueue使用单锁，LinkedBlockingQueue使用双锁
+3. ArrayBlockingQueue下标引用循环引用，LinkedBlockingQueue使用引用指向标记
+4. ArrayBlockingQueue使用int计数，LinkedBlockingQueue使用AtomicInteger原子类计数
+
+总结：我理解ArrayBlockingQueue的入队和出队会操作同一块数据items，出队和入队有可能操作同一个下标；LinkedBlockingQueue在插入的时候需要通过element初始化Node，效率相对较低，使用2把锁可以使出队和入队并发操作。
