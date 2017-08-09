@@ -1,0 +1,115 @@
+---
+layout: post
+title: "Java多线程5"
+date: "2017-08-09 12:00:00 +0800"
+categories: Java
+tags: Java多线程
+excerpt: Java多线程-集合2
+mathjax: true
+---
+
+* content
+{:toc}
+
+继续上一篇对JUC中集合一下分析和总结，那么就把队列结束掉吧
+1. ConcurrentLinkedQueue
+2. DelayQueue
+3. PriorityBlockingQueue
+
+## ConcurrentLinkedQueue的实现
+
+### 基本概念
+1. 一个无界的
+2. 非阻塞的
+3. 链表实现的
+4. 队列
+
+### 字段
+1. volatile Node<E> head => 链表头
+2. volatile Node<E> tail => 链表尾
+3. static final sun.misc.Unsafe UNSAFE => 自己分配内存
+4. static final long headOffset => 链表头的偏移
+5. static final long tailOffset => 链表尾的偏移
+
+### 构造方法
+1. public ConcurrentLinkedQueue()
+2. public ConcurrentLinkedQueue(Collection<? extends E> c)
+
+### 方法
+- 插入元素：public boolean offer(E e)
+{% highlight Java %}
+public boolean offer(E e) {
+    checkNotNull(e);
+    // 创建新的节点
+    final Node<E> newNode = new Node<E>(e);
+    // t是链表的尾部，p也指向链表的尾部
+    for (Node<E> t = tail, p = t;;) {
+        // 将p的下游节点引用指向q
+        Node<E> q = p.next;
+        if (q == null) {
+            // p is last node
+            // 如果q为空，则p为最后一个节点
+            // 底层使用CAS算法，为空更新为newNode
+            if (p.casNext(null, newNode)) {
+                // 如果当前不是链表尾，则进行casTail更新链表尾端
+                if (p != t) // hop two nodes at a time
+                    casTail(t, newNode);  // Failure is OK.
+                return true;
+            }
+        }
+        else if (p == q)
+            p = (t != (t = tail)) ? t : head;
+        else
+            p = (p != t && t != (t = tail)) ? t : q;
+    }
+}
+// private static class Node<E>
+boolean casNext(Node<E> cmp, Node<E> val) {
+    // nextOffset= UNSAFE.objectFieldOffset(k.getDeclaredField("next"));
+    // 在Node类中声明的变量名next
+    return UNSAFE.compareAndSwapObject(this, nextOffset, cmp, val);
+}
+// casNext会去调用UNSAFE.compareAndSwapObject(this, nextOffset, cmp, val);
+// compareAndSwapObject(Object var1, long var2, Object var3, Object var4)
+// 变量1：包含要修改field的对象
+// 变量2：object型field的偏移量
+// 变量3：希望field中存在的值
+// 变量4：如果期望值expect与field的当前值相同，设置filed的值为这个新值
+{% endhighlight %}
+总结：使用CAS这种原子操作来更新链表结构，等学习Atomic***这些原子类再来细细理解CAS操作
+
+- 获取元素：public E poll()
+{% highlight Java %}
+public E poll() {
+    restartFromHead:
+    for (;;) {
+        // h是链表的头，p也指向链表头，q为空
+        for (Node<E> h = head, p = h, q;;) {
+            // item为头中数据
+            E item = p.item;
+            // 如果非空，且如果能使用null替换成功
+            if (item != null && p.casItem(item, null)) {
+                if (p != h) // hop two nodes at a time
+                    // 更新头部
+                    updateHead(h, ((q = p.next) != null) ? q : p);
+                return item;
+            }
+            // 如果第二个节点为空，即只有一个节点
+            else if ((q = p.next) == null) {
+                updateHead(h, p);
+                return null;
+            }
+            // 如果单一节点
+            else if (p == q)
+                continue restartFromHead;
+            else
+                p = q;
+        }
+    }
+}
+boolean casItem(E cmp, E val) {
+    return UNSAFE.compareAndSwapObject(this, itemOffset, cmp, val);
+}
+{% endhighlight %}
+
+- 对当前是否为空判断，使用isEmpty，不要使用size，因为size方法会遍历
