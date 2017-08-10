@@ -113,3 +113,101 @@ boolean casItem(E cmp, E val) {
 {% endhighlight %}
 
 - 对当前是否为空判断，使用isEmpty，不要使用size，因为size方法会遍历
+
+
+## PriorityQueue的实现
+
+### 基本概念
+1. 无界
+2. 具有优先级先后顺序
+3. 非阻塞
+4. 不是JUC包下的
+
+### 变量
+1. int DEFAULT_INITIAL_CAPACITY = 11 => 默认初始的队列容量
+2. Object[] queue => 用于存放数据的数组，即优先级队列是使用数组来存储数据的
+3. int size => 队列元素个数
+4. Comparator<? super E> comparator => 即该元素遵循的排列器
+5. int modCount => 该队列结构的变换次数
+
+### 构造方法
+1. public PriorityQueue() => 使用默认容量来构造一个无优先级顺序性的队列
+2. public PriorityQueue(int initialCapacity) => 设置容量大小
+3. public PriorityQueue(Comparator<? super E> comparator) => 设置元素依赖的比较器
+4. public PriorityQueue(int initialCapacity, Comparator<? super E> comparator) => 同时提供容量和比较器
+5. public PriorityQueue(Collection<? extends E> c) =>
+6. public PriorityQueue(PriorityQueue<? extends E> c) =>
+7. public PriorityQueue(SortedSet<? extends E> c) =>
+
+### 方法
+- 添加
+{% highlight Java %}
+public boolean offer(E e) {
+    if (e == null)
+        throw new NullPointerException();
+    modCount++;
+    int i = size;
+    if (i >= queue.length)
+        grow(i + 1);
+    size = i + 1;
+    if (i == 0)
+        queue[0] = e;
+    else
+        siftUp(i, e);
+    return true;
+}
+private void grow(int minCapacity) {
+    int oldCapacity = queue.length;
+    // Double size if small; else grow by 50%
+    int newCapacity = oldCapacity + ((oldCapacity < 64) ?
+                                     (oldCapacity + 2) :
+                                     (oldCapacity >> 1));
+    // overflow-conscious code
+    if (newCapacity - MAX_ARRAY_SIZE > 0)
+        newCapacity = hugeCapacity(minCapacity);
+    queue = Arrays.copyOf(queue, newCapacity);
+}
+public E poll() {
+    if (size == 0)
+        return null;
+    int s = --size;
+    modCount++;
+    E result = (E) queue[0];
+    E x = (E) queue[s];
+    queue[s] = null;
+    if (s != 0)
+        siftDown(0, x);
+    return result;
+}
+private void siftDown(int k, E x) {
+    if (comparator != null)
+        siftDownUsingComparator(k, x);
+    else
+        siftDownComparable(k, x);
+}
+{% endhighlight %}
+总结：offer会触发数组扩充，如果比较小，数组就扩展一倍；如果其他情况，就按照50%的扩展。显然这个是非线程安全的操作，如果一个线程正在扩容，而另一个线程正在进行其他的操作；同样在获取数据也存在线程安全问题。显然，存是插入顺序，而获取则按照比较器来排序输出
+
+## PriorityBlockingQueue的实现
+
+### 基本概念
+1. 无界
+2. 具有优先级先后顺序
+3. 阻塞
+
+### 变量
+1. int DEFAULT_INITIAL_CAPACITY = 11 =>
+2. int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8 => 数组最大的大小，可是为什么要减8
+3. Object[] queue => 存储的队列数组
+4. Comparator<? super E> comparator => 队列的元素比较器
+5. int size => 当前队列的个数
+6. ReentrantLock lock => 用于所有共有方法的锁
+7. final Condition notEmpty => 非空信号量
+8. volatile int allocationSpinLock => 用于分配的旋转锁
+9. PriorityQueue<E> q => 用于序列化，保持与以前版本的兼容
+
+### 构造方法
+1. public PriorityBlockingQueue()
+2. public PriorityBlockingQueue(int initialCapacity)
+3. public PriorityBlockingQueue(int initialCapacity, Comparator<? super E> comparator)
+4. public PriorityBlockingQueue(Collection<? extends E> c)
