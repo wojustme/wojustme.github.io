@@ -196,7 +196,7 @@ private void siftDown(int k, E x) {
 3. 阻塞
 
 ### 变量
-1. int DEFAULT_INITIAL_CAPACITY = 11 =>
+1. int DEFAULT_INITIAL_CAPACITY = 11 => 初始容量
 2. int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8 => 数组最大的大小，可是为什么要减8
 3. Object[] queue => 存储的队列数组
 4. Comparator<? super E> comparator => 队列的元素比较器
@@ -211,3 +211,150 @@ private void siftDown(int k, E x) {
 2. public PriorityBlockingQueue(int initialCapacity)
 3. public PriorityBlockingQueue(int initialCapacity, Comparator<? super E> comparator)
 4. public PriorityBlockingQueue(Collection<? extends E> c)
+
+### 方法
+- 插入数据：add、offer、put方法
+
+{% highlight Java %}
+public boolean add(E e) {
+    return offer(e);
+}
+public boolean offer(E e) {
+    if (e == null)
+        throw new NullPointerException();
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    int n, cap;
+    Object[] array;
+    while ((n = size) >= (cap = (array = queue).length))
+        tryGrow(array, cap);
+    try {
+        Comparator<? super E> cmp = comparator;
+        if (cmp == null)
+            siftUpComparable(n, e, array);
+        else
+            siftUpUsingComparator(n, e, array, cmp);
+        size = n + 1;
+        notEmpty.signal();
+    } finally {
+        lock.unlock();
+    }
+    return true;
+}
+
+public void put(E e) {
+    offer(e); // never need to block
+}
+
+public boolean offer(E e, long timeout, TimeUnit unit) {
+    return offer(e); // never need to block
+}
+
+// 对队列容量进行扩容
+private void tryGrow(Object[] array, int oldCap) {
+    lock.unlock(); // must release and then re-acquire main lock
+    Object[] newArray = null;
+    if (allocationSpinLock == 0 &&
+        UNSAFE.compareAndSwapInt(this, allocationSpinLockOffset,
+                                 0, 1)) {
+        try {
+            int newCap = oldCap + ((oldCap < 64) ?
+                                   (oldCap + 2) : // grow faster if small
+                                   (oldCap >> 1));
+            if (newCap - MAX_ARRAY_SIZE > 0) {    // possible overflow
+                int minCap = oldCap + 1;
+                if (minCap < 0 || minCap > MAX_ARRAY_SIZE)
+                    throw new OutOfMemoryError();
+                newCap = MAX_ARRAY_SIZE;
+            }
+            if (newCap > oldCap && queue == array)
+                newArray = new Object[newCap];
+        } finally {
+            allocationSpinLock = 0;
+        }
+    }
+    if (newArray == null) // back off if another thread is allocating
+        Thread.yield();
+    lock.lock();
+    if (newArray != null && queue == array) {
+        queue = newArray;
+        System.arraycopy(array, 0, newArray, 0, oldCap);
+    }
+}
+private static <T> void siftUpComparable(int k, T x, Object[] array) {
+    Comparable<? super T> key = (Comparable<? super T>) x;
+    while (k > 0) {
+        int parent = (k - 1) >>> 1;
+        Object e = array[parent];
+        if (key.compareTo((T) e) >= 0)
+            break;
+        array[k] = e;
+        k = parent;
+    }
+    array[k] = key;
+}
+
+private static <T> void siftUpUsingComparator(int k, T x, Object[] array,
+                                   Comparator<? super T> cmp) {
+    while (k > 0) {
+        int parent = (k - 1) >>> 1;
+        // 确定最后一位数据，然后进行移位操作
+        Object e = array[parent];
+        if (cmp.compare(x, (T) e) >= 0)
+            break;
+        array[k] = e;
+        k = parent;
+    }
+    array[k] = x;
+}
+{% endhighlight %}
+流程解析：拿锁，如果元素个数大于等于当前队列的长度，则去扩容队列，然后按照是否有比较器来排序，插入成功后触发队列非空信号。在队列扩容的时候，会放弃锁，然后通过一种乐观锁的机制(CAS)来扩展队列空间，在多线程的情况下if (newArray == null)，那就让Thread.yield()线程让出CPU资源，然后再加锁，更新队列存储数组。
+总结：从代码中，我们发现，所有插入方法落脚点都是offer方法。而且可以看出那个数组存储的数据元素就是有序的(按照优先级顺序来的)
+
+- 获取数据：poll、take、peek方法
+{% highlight Java %}
+public E poll() {
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    try {
+        return dequeue();
+    } finally {
+        lock.unlock();
+    }
+}
+public E take() throws InterruptedException {
+    final ReentrantLock lock = this.lock;
+    lock.lockInterruptibly();
+    E result;
+    try {
+        while ( (result = dequeue()) == null)
+            notEmpty.await();
+    } finally {
+        lock.unlock();
+    }
+    return result;
+}
+public E poll(long timeout, TimeUnit unit) throws InterruptedException {
+    long nanos = unit.toNanos(timeout);
+    final ReentrantLock lock = this.lock;
+    lock.lockInterruptibly();
+    E result;
+    try {
+        while ( (result = dequeue()) == null && nanos > 0)
+            nanos = notEmpty.awaitNanos(nanos);
+    } finally {
+        lock.unlock();
+    }
+    return result;
+}
+public E peek() {
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    try {
+        return (size == 0) ? null : (E) queue[0];
+    } finally {
+        lock.unlock();
+    }
+}
+{% endhighlight %}
+总结：这几个方法，挺容易看的明白，就不解析了。
