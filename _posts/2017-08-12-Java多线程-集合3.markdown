@@ -303,3 +303,422 @@ final TreeNode<K,V> find(int h, Object k, Class<?> kc) {
 2. 添加元素时，挂载节点时，会数据冲突，比如，两个线程同时向一个数组空桶插入数据，第一个和第二个都会检测到空桶，插入时出现冲突
 3. 删除元素时，也可能会出现，数据多线程不一样情况
 4. ………………
+
+### HashTable的实现
+#### 字段
+1. Entry<?,?>[] table => 同HashMap一样，数组桶
+2. int count => KV数据量的统计
+3. float loadFactor => hash的负载因子
+4. int modCount =>
+5. int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8 => 数组最大的长度
+6. volatile Set<K> keySet => 存放key值的set容器
+7. volatile Set<Map.Entry<K,V>> entrySet => 存放实体的set容器
+8. volatile Collection<V> values => 存放value的容器
+9. int KEYS = 0, int VALUES = 1, int ENTRIES = 2 => 枚举类型
+
+#### 构造方法
+1. public Hashtable(int initialCapacity, float loadFactor)
+2. public Hashtable(int initialCapacity)
+3. public Hashtable()
+4. public Hashtable(Map<? extends K, ? extends V> t)
+
+{% highlight Java %}
+public Hashtable(int initialCapacity, float loadFactor) {
+    if (initialCapacity < 0)
+        throw new IllegalArgumentException("Illegal Capacity: "+
+                                           initialCapacity);
+    if (loadFactor <= 0 || Float.isNaN(loadFactor))
+        throw new IllegalArgumentException("Illegal Load: "+loadFactor);
+
+    if (initialCapacity==0)
+        initialCapacity = 1;
+    this.loadFactor = loadFactor;
+    table = new Entry<?,?>[initialCapacity];
+    threshold = (int)Math.min(initialCapacity * loadFactor, MAX_ARRAY_SIZE + 1);
+}
+{% endhighlight %}
+
+#### 方法
+- 插入数据：public synchronized V put(K key, V value)
+{% highlight Java %}
+public synchronized V put(K key, V value) {
+    // Make sure the value is not null
+    if (value == null) {
+        throw new NullPointerException();
+    }
+
+    // Makes sure the key is not already in the hashtable.
+    Entry<?,?> tab[] = table;
+    int hash = key.hashCode();
+    int index = (hash & 0x7FFFFFFF) % tab.length;
+    @SuppressWarnings("unchecked")
+    Entry<K,V> entry = (Entry<K,V>)tab[index];
+    for(; entry != null ; entry = entry.next) {
+        if ((entry.hash == hash) && entry.key.equals(key)) {
+            V old = entry.value;
+            entry.value = value;
+            return old;
+        }
+    }
+
+    addEntry(hash, key, value, index);
+    return null;
+}
+private void addEntry(int hash, K key, V value, int index) {
+    modCount++;
+
+    Entry<?,?> tab[] = table;
+    if (count >= threshold) {
+        // Rehash the table if the threshold is exceeded
+        rehash();
+
+        tab = table;
+        hash = key.hashCode();
+        index = (hash & 0x7FFFFFFF) % tab.length;
+    }
+
+    // Creates the new entry.
+    @SuppressWarnings("unchecked")
+    Entry<K,V> e = (Entry<K,V>) tab[index];
+    tab[index] = new Entry<>(hash, key, value, e);
+    count++;
+}
+{% endhighlight %}
+总结：从synchronized关键字来看，该方法是线程安全的，同时会对V值进行null校验；如果在非空数组桶中，则按照链表递归查找插入，否则，调用addEntry方法，当然容量上达到阈值，会进行扩容。
+
+- 获取元素
+{% highlight Java %}
+public synchronized V get(Object key) {
+    Entry<?,?> tab[] = table;
+    int hash = key.hashCode();
+    int index = (hash & 0x7FFFFFFF) % tab.length;
+    for (Entry<?,?> e = tab[index] ; e != null ; e = e.next) {
+        if ((e.hash == hash) && e.key.equals(key)) {
+            return (V)e.value;
+        }
+    }
+    return null;
+}
+{% endhighlight %}
+其实，没什么可说的，该方法是同步线程安全的，如果不存在返回空。
+
+**通过两个util包下的Hash实现的学习，我基本了解了map的原理，下面学习JUC包下的ConcurrentHashMap**
+
+### 构造方法
+1. public ConcurrentHashMap()
+2. public ConcurrentHashMap(int initialCapacity)
+3. public ConcurrentHashMap(Map<? extends K, ? extends V> m)
+4. public ConcurrentHashMap(int initialCapacity, float loadFactor)
+5. public ConcurrentHashMap(int initialCapacity, float loadFactor, int concurrencyLevel)
+
+### 方法
+- 插入元素
+
+{% highlight Java %}
+public V put(K key, V value) {
+    return putVal(key, value, false);
+}
+final V putVal(K key, V value, boolean onlyIfAbsent) {
+    // 非空校验
+    if (key == null || value == null) throw new NullPointerException();
+    int hash = spread(key.hashCode());
+    int binCount = 0;
+    // tab即为数组桶
+    for (Node<K,V>[] tab = table;;) {
+        Node<K,V> f; int n, i, fh;
+        // 如果为空或长度为0，进行数组桶初始化
+        if (tab == null || (n = tab.length) == 0)
+            tab = initTable();
+        // 获得桶链表赋予f，如果为null
+        else if ((f = tabAt(tab, i = (n - 1) & hash)) == null) {
+            /*
+            static final <K,V> boolean casTabAt(Node<K,V>[] tab, int i,
+                                                    Node<K,V> c, Node<K,V> v) {
+                return U.compareAndSwapObject(tab, ((long)i << ASHIFT) + ABASE, c, v);
+            }
+             */
+            // 如果设置成功后，即跳出循环，完成插入操作，
+            // 如果设置不成功，证明有其他的线程已经插入数据了，继续下一步
+            if (casTabAt(tab, i, null,
+                         new Node<K,V>(hash, key, value, null)))
+                break;                   // no lock when adding to empty bin
+        }
+        // 如果遍历到ForwardingNode节点  说明这个点已经被处理过了 直接跳过
+        else if ((fh = f.hash) == MOVED)
+            tab = helpTransfer(tab, f);
+        else {
+            V oldVal = null;
+            // 对该链表加锁
+            synchronized (f) {
+                // 如果f是数组桶中链表头，添加元素数据
+                if (tabAt(tab, i) == f) {
+                    if (fh >= 0) {
+                        binCount = 1;
+                        for (Node<K,V> e = f;; ++binCount) {
+                            K ek;
+                            if (e.hash == hash &&
+                                ((ek = e.key) == key ||
+                                 (ek != null && key.equals(ek)))) {
+                                oldVal = e.val;
+                                if (!onlyIfAbsent)
+                                    e.val = value;
+                                break;
+                            }
+                            Node<K,V> pred = e;
+                            if ((e = e.next) == null) {
+                                pred.next = new Node<K,V>(hash, key,
+                                                          value, null);
+                                break;
+                            }
+                        }
+                    }
+                    // 如果节点是tree模型
+                    else if (f instanceof TreeBin) {
+                        Node<K,V> p;
+                        binCount = 2;
+                        // 插入树节点
+                        if ((p = ((TreeBin<K,V>)f).putTreeVal(hash, key,
+                                                       value)) != null) {
+                            oldVal = p.val;
+                            if (!onlyIfAbsent)
+                                p.val = value;
+                        }
+                    }
+                }
+            }
+            if (binCount != 0) {
+                if (binCount >= TREEIFY_THRESHOLD)
+                    // 如果达到阈值，将链表转换成tree模型
+                    // 该方法使用synchronized关键字，保证了线程安全
+                    treeifyBin(tab, i);
+                if (oldVal != null)
+                    return oldVal;
+                break;
+            }
+        }
+    }
+    // 使用CAS方式来增加个数
+    addCount(1L, binCount);
+    return null;
+}
+private final void treeifyBin(Node<K,V>[] tab, int index) {
+    Node<K,V> b; int n, sc;
+    if (tab != null) {
+        if ((n = tab.length) < MIN_TREEIFY_CAPACITY)
+            tryPresize(n << 1);
+        else if ((b = tabAt(tab, index)) != null && b.hash >= 0) {
+            synchronized (b) {
+                if (tabAt(tab, index) == b) {
+                    TreeNode<K,V> hd = null, tl = null;
+                    for (Node<K,V> e = b; e != null; e = e.next) {
+                        TreeNode<K,V> p =
+                            new TreeNode<K,V>(e.hash, e.key, e.val,
+                                              null, null);
+                        if ((p.prev = tl) == null)
+                            hd = p;
+                        else
+                            tl.next = p;
+                        tl = p;
+                    }
+                    setTabAt(tab, index, new TreeBin<K,V>(hd));
+                }
+            }
+        }
+    }
+}
+private final void addCount(long x, int check) {
+    CounterCell[] as; long b, s;
+    if ((as = counterCells) != null ||
+        !U.compareAndSwapLong(this, BASECOUNT, b = baseCount, s = b + x)) {
+        CounterCell a; long v; int m;
+        boolean uncontended = true;
+        if (as == null || (m = as.length - 1) < 0 ||
+            (a = as[ThreadLocalRandom.getProbe() & m]) == null ||
+            !(uncontended =
+              U.compareAndSwapLong(a, CELLVALUE, v = a.value, v + x))) {
+            fullAddCount(x, uncontended);
+            return;
+        }
+        if (check <= 1)
+            return;
+        s = sumCount();
+    }
+    // 同时检测是否需要进行扩容
+    if (check >= 0) {
+        Node<K,V>[] tab, nt; int n, sc;
+        // sizeCtl是该数组在初始化，还是扩容的控制变量
+        while (s >= (long)(sc = sizeCtl) && (tab = table) != null &&
+               (n = tab.length) < MAXIMUM_CAPACITY) {
+            int rs = resizeStamp(n);
+            // 如果小于0则需要扩容，其中
+            // 负数代表正在进行初始化或扩容操作
+            // -1代表正在初始化
+            // -N 表示有N-1个线程正在进行扩容操作
+            // 正数或0代表hash表还没有被初始化，这个数值表示初始化或下一次进行扩容的大小，这一点类似于扩容阈值的概念
+            // 它的值始终是当前ConcurrentHashMap容量的0.75倍，这与loadfactor是对应的。
+            if (sc < 0) {
+                if ((sc >>> RESIZE_STAMP_SHIFT) != rs || sc == rs + 1 ||
+                    sc == rs + MAX_RESIZERS || (nt = nextTable) == null ||
+                    transferIndex <= 0)
+                    break;
+                if (U.compareAndSwapInt(this, SIZECTL, sc, sc + 1))
+                    transfer(tab, nt);
+            }
+            else if (U.compareAndSwapInt(this, SIZECTL, sc,
+                                         (rs << RESIZE_STAMP_SHIFT) + 2))
+                transfer(tab, null);
+            s = sumCount();
+        }
+    }
+}
+{% endhighlight %}
+总结：显然，该添加方法是将锁粒度细化，同时在添加时，先进行CAS校验，然后再用锁机制来保证。在添加的过程，同HashMap一样会出现链表和tree两种模型的切换，而此时的树模型是TreeBin类，它是对TreeNode进行一层包装，在TreeBin类中进行众多的CAS操作等，即不断无锁操作和细粒度化的操作保证高并发性。
+
+
+- 获取元素
+
+{% highlight Java %}
+public V get(Object key) {
+    Node<K,V>[] tab; Node<K,V> e, p; int n, eh; K ek;
+    int h = spread(key.hashCode());
+    if ((tab = table) != null && (n = tab.length) > 0 &&
+        (e = tabAt(tab, (n - 1) & h)) != null) {
+        if ((eh = e.hash) == h) {
+            if ((ek = e.key) == key || (ek != null && key.equals(ek)))
+                return e.val;
+        }
+        else if (eh < 0)
+            return (p = e.find(h, key)) != null ? p.val : null;
+        while ((e = e.next) != null) {
+            if (e.hash == h &&
+                ((ek = e.key) == key || (ek != null && key.equals(ek))))
+                return e.val;
+        }
+    }
+    return null;
+}
+{% endhighlight %}
+在get操作中，只通过tabAt中的CAS操作即可保证了高并发性。给定一个key来确定value的时候，必须满足两个条件  key相同  hash值相同，对于节点可能在链表或树上的情况，需要分别去查找。
+
+
+## CopyOnWriteArrayList的实现
+
+### 基本概念
+1. 从名字上就可以知道，这是一个List容器
+2. 这是当写时就重新复制整个容器
+
+### 字段
+1. ReentrantLock lock = new ReentrantLock() => 重入锁
+2. volatile Object[] array => 存放数据的数组
+3. long lockOffset => 锁的偏移？
+4. sun.misc.Unsafe UNSAFE => 用于直接内存申请
+
+### 构造方法
+1. public CopyOnWriteArrayList()
+2. public CopyOnWriteArrayList(Collection<? extends E> c)
+3. public CopyOnWriteArrayList(E[] toCopyIn)
+
+### 方法
+- 获取元素：public E get(int index)
+
+{% highlight Java %}
+public E get(int index) {
+    return get(getArray(), index);
+}
+private E get(Object[] a, int index) {
+    return (E) a[index];
+}
+final Object[] getArray() {
+    return array;
+}
+{% endhighlight %}
+
+- 添加元素
+
+{% highlight Java %}
+public boolean add(E e) {
+    final ReentrantLock lock = this.lock;
+    // 拿锁
+    lock.lock();
+    try {
+        // 获得数组
+        Object[] elements = getArray();
+        // 获得长度
+        int len = elements.length;
+        // 创建一个新数组，较之前那个大1
+        Object[] newElements = Arrays.copyOf(elements, len + 1);
+        // 插入元素
+        newElements[len] = e;
+        // 引用回写
+        setArray(newElements);
+        return true;
+    } finally {
+        lock.unlock();
+    }
+}
+final void setArray(Object[] a) {
+    array = a;
+}
+
+public void add(int index, E element) {
+    final ReentrantLock lock = this.lock;
+    // 拿锁
+    lock.lock();
+    try {
+        Object[] elements = getArray();
+        int len = elements.length;
+        // 如果索引越界，抛异常
+        if (index > len || index < 0)
+            throw new IndexOutOfBoundsException("Index: "+index+
+                                                ", Size: "+len);
+        Object[] newElements;
+        int numMoved = len - index;
+        if (numMoved == 0)
+            // 如果需要重新创建，和上面方法类似
+            newElements = Arrays.copyOf(elements, len + 1);
+        else {
+            newElements = new Object[len + 1];
+            System.arraycopy(elements, 0, newElements, 0, index);
+            System.arraycopy(elements, index, newElements, index + 1,
+                             numMoved);
+        }
+        newElements[index] = element;
+        setArray(newElements);
+    } finally {
+        lock.unlock();
+    }
+}
+{% endhighlight %}
+
+- 删除元素
+{% highlight Java %}
+public E remove(int index) {
+    final ReentrantLock lock = this.lock;
+    lock.lock();
+    try {
+        Object[] elements = getArray();
+        int len = elements.length;
+        E oldValue = get(elements, index);
+        int numMoved = len - index - 1;
+        if (numMoved == 0)
+            // 同样的，还是需要重新申请数组
+            setArray(Arrays.copyOf(elements, len - 1));
+        else {
+            // 也是申请一个新数组
+            Object[] newElements = new Object[len - 1];
+            System.arraycopy(elements, 0, newElements, 0, index);
+            System.arraycopy(elements, index + 1, newElements, index,
+                             numMoved);
+            setArray(newElements);
+        }
+        return oldValue;
+    } finally {
+        lock.unlock();
+    }
+}
+{% endhighlight %}
+总结：CopyOnWriteArrayList类除了get操作是无需创建新数组，而其他的add、remove等操作都是会去触发创建新的数组，所以该类适用于读多写少操作。它无法保证实时一致性，只能保证最终一致性。
+
+## CopyOnWriteArraySet的实现
+
+**这个类也是COW技术的延续，而容器是使用set模型，不允许重复元素而已。优缺点与CopyOnWriteArrayList一样，不细说了。**
